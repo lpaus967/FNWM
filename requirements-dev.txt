@@ -1,0 +1,41 @@
+# Include base requirements
+-r requirements.txt
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-asyncio==0.23.2
+pytest-mock==3.12.0
+hypothesis==6.92.2  # Property-based testing
+faker==22.0.0  # Generate test data
+
+# Code Quality
+black==23.12.1  # Code formatting
+isort==5.13.2  # Import sorting
+flake8==7.0.0  # Linting
+mypy==1.7.1  # Type checking
+pylint==3.0.3  # Additional linting
+
+# Development Tools
+ipython==8.19.0
+jupyter==1.0.0
+notebook==7.0.6
+
+# Pre-commit hooks
+pre-commit==3.6.0
+
+# Documentation
+mkdocs==1.5.3
+mkdocs-material==9.5.3
+mkdocstrings[python]==0.24.0
+
+# Data Quality
+great-expectations==0.18.8  # Data validation
+
+# Profiling & Performance
+py-spy==0.3.14  # Profiling
+memory-profiler==0.61.0
+
+# Database Tools
+alembic==1.13.1  # Database migrations
+pgcli==4.0.1  # PostgreSQL CLI with autocomplete

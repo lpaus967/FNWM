@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/logo.jpg" alt="FNWM Logo" width="600"/>
+</div>
+
 # Fisheries Hydrology Intelligence Engine
 
 This repository contains the core engineering code that transforms NOAA’s **National Water Model (NWM)** into **explainable, fisheries-focused intelligence** for onWater products.
@@ -177,10 +181,34 @@ This repository is the contract between **science, engineering, and product**.
 
 ---
 
+## 🚀 Getting Started
+
+### Quick Setup (Conda - Recommended)
+
+```bash
+# Create conda environment
+conda env create -f environment.yml
+
+# Activate environment
+conda activate fnwm
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your settings
+
+# Start developing!
+```
+
+See [docs/setup/conda.md](docs/setup/conda.md) for detailed conda instructions, or [docs/guides/quickstart.md](docs/guides/quickstart.md) for venv setup.
+
+---
+
 ## 📚 References
 
 - NOAA National Water Model: https://water.noaa.gov/about/nwm
 - NWM Data Access: https://nomads.ncep.noaa.gov/pub/data/nccf/com/nwm/
+- Implementation Guide: [docs/guides/implementation.md](docs/guides/implementation.md)
+- Conda Setup: [docs/setup/conda.md](docs/setup/conda.md)
 
 ---
 

@@ -1,0 +1,102 @@
+name: fnwm
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python
+  - python=3.11
+
+  # Core data processing
+  - pandas=2.1.*
+  - numpy=1.26.*
+  - xarray=2023.12.*
+  - netcdf4=1.6.*
+  - dask=2023.12.*
+  - scipy=1.11.*
+
+  # Database
+  - psycopg2=2.9.*
+  - sqlalchemy=2.0.*
+
+  # Geospatial (optional but useful)
+  - geopandas=0.14.*
+  - shapely=2.0.*
+
+  # Configuration & utilities
+  - pyyaml=6.0.*
+  - python-dotenv=1.0.*
+  - python-dateutil=2.8.*
+  - pytz=2023.*
+
+  # HTTP & async
+  - requests=2.31.*
+  - aiohttp=3.9.*
+
+  # Testing
+  - pytest=7.4.*
+  - pytest-cov=4.1.*
+  - pytest-asyncio=0.23.*
+  - pytest-mock=3.12.*
+  - hypothesis=6.92.*
+
+  # Code quality
+  - black=23.12.*
+  - isort=5.13.*
+  - flake8=7.0.*
+  - mypy=1.7.*
+  - pylint=3.0.*
+  - pre-commit=3.6.*
+
+  # Development tools
+  - ipython=8.19.*
+  - jupyter=1.0.*
+  - notebook=7.0.*
+
+  # Monitoring
+  - prometheus_client=0.19.*
+
+  # Pip-only packages (not available in conda)
+  - pip
+  - pip:
+    # API Framework (FastAPI not well-maintained in conda)
+    - fastapi==0.109.0
+    - uvicorn[standard]==0.25.0
+    - pydantic==2.5.3
+    - pydantic-settings==2.1.0
+
+    # Async PostgreSQL
+    - asyncpg==0.29.0
+
+    # Redis
+    - redis==5.0.1
+    - hiredis==2.3.2
+
+    # Task scheduling
+    - apscheduler==3.10.4
+
+    # Alternative fast dataframes
+    - polars==0.20.3
+
+    # Data quality
+    - great-expectations==0.18.8
+
+    # Additional utilities
+    - httpx==0.26.0
+    - tenacity==8.2.3
+    - python-json-logger==2.0.7
+
+    # Profiling
+    - py-spy==0.3.14
+    - memory-profiler==0.61.0
+
+    # Documentation
+    - mkdocs==1.5.3
+    - mkdocs-material==9.5.3
+    - mkdocstrings[python]==0.24.0
+
+    # Database migrations
+    - alembic==1.13.1
+
+    # Optional monitoring
+    - sentry-sdk==1.39.2

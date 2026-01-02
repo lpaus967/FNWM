@@ -1,0 +1,25 @@
+name: "Coldwater Trout"
+
+scoring_weights:
+  flow_suitability: 0.30
+  velocity_suitability: 0.25
+  thermal_suitability: 0.25
+  stability: 0.20
+
+flow_percentile_optimal:
+  min: 40
+  max: 70
+
+velocity_ranges:
+  min_optimal: 0.3  # m/s
+  max_optimal: 0.8
+  min_tolerable: 0.1
+  max_tolerable: 1.5
+
+bdi_threshold: 0.6
+
+temperature:
+  optimal_min: 10  # Celsius
+  optimal_max: 16
+  stress_threshold: 18
+  critical_threshold: 20

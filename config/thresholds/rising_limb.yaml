@@ -1,0 +1,16 @@
+default:
+  min_slope: 0.5  # m³/s per hour
+  min_duration: 3  # consecutive hours
+  intensity_thresholds:
+    weak: 0.5
+    moderate: 2.0
+    strong: 5.0
+
+species_overrides:
+  anadromous_salmonid:
+    min_slope: 2.0
+    min_duration: 6
+    intensity_thresholds:
+      weak: 2.0
+      moderate: 5.0
+      strong: 10.0

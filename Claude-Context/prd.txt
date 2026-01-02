@@ -1,0 +1,907 @@
+National Water Model (NWM) – Internal Engineering Guide for Fisheries Products
+Audience: onWater Engineering, Data, and Product teams
+Purpose: Provide a clear, opinionated, and production-ready guide for using NOAA’s National Water Model (NWM) to power fisheries-facing features.
+Data: https://nomads.ncep.noaa.gov/pub/data/nccf/com/nwm/ 
+Reference: https://water.noaa.gov/about/nwm 
+Liam Paus
+12/29/2025
+________________
+
+
+1. Guiding Principles (Read This First)
+1. NWM is infrastructure, not a product
+We never expose raw NWM folders, filenames, or jargon to users.
+2. Selectivity beats completeness
+80–90% of fisheries value comes from ~4 NWM products. Ingest only what we need.
+3. Separate truth, prediction, and uncertainty
+“Now,” “today,” and “outlook” must be distinct concepts in both data and APIs.
+4. Ecology ≠ hydrology
+Gauge-corrected flows are best for display; non-assimilated flows are often better for ecological inference.
+________________
+
+
+2. Canonical NWM Products We Use
+2.1 Current Conditions (Baseline Truth)
+Folder
+analysis_assim/channel_rt
+What it represents
+   * Best estimate of current streamflow and velocity
+   * Assimilates USGS gauge observations
+Primary uses
+   * Current flow & velocity maps
+   * “Is this river fishable right now?”
+   * Baseline for alerts and thresholds
+Rules
+   * This is the ONLY source of “now”
+   * Do not substitute short_range f001
+________________
+
+
+2.2 Near-Term Forecast (Today → Tomorrow)
+Folder
+short_range/channel_rt
+What it represents
+   * 0–18 hour forecast
+   * High temporal resolution
+   * Strong gauge influence early
+Primary uses
+   * Hatch timing
+   * Drift windows
+   * Spawning or migration triggers
+   * In-day trip decisions
+Rules
+   * Trust f001–f006 most
+   * Gradually down-weight confidence after f012
+   * Treat each f### file as a full snapshot, not an increment
+________________
+
+
+2.3 Multi-Day Outlook (3–10 days)
+Folder
+medium_range_blend/channel_rt
+What it represents
+   * Ensemble-mean forecast
+   * Reduced noise and false precision
+Primary uses
+   * Trend detection (rising / falling / stable)
+   * Weekend planning
+   * Blowout or low-flow risk
+Rules
+   * Never use a single ensemble member for user-facing features
+   * This is about direction and magnitude, not timing
+________________
+
+
+2.4 Physical Baseflow & Refugia Analysis
+Folder
+analysis_assim_no_da/channel_rt
+What it represents
+   * No gauge nudging
+   * Preserves groundwater and subsurface signals
+Primary uses
+   * Summer refugia detection
+   * Baseflow stability scoring
+   * Cold-water persistence proxies
+Rules
+   * Not user-facing directly
+   * Used for derived ecological indices
+________________
+
+
+3. Domains and Networks
+3.1 Never Mix Domains
+Each domain has a distinct routing network:
+   * CONUS
+   * Alaska
+   * Hawaii
+   * Puerto Rico
+   * Coastal (Atlantic/Gulf, Pacific)
+Rule: Feature IDs are NOT interchangeable across domains.
+________________
+
+
+4. Core Variables (Channel Routing)
+Each record corresponds to one NHDPlus river reach (feature_id).
+Variable
+	Meaning
+	Fisheries Relevance
+	streamflow_m3s
+	Total discharge
+	Habitat availability, thresholds
+	velocity_ms
+	Mean channel velocity
+	Drift, energetics, holding water
+	qSfcLatRunoff_m3s
+	Surface runoff
+	Storm response, blowout risk
+	qBucket_m3s
+	Shallow subsurface flow
+	Recession behavior
+	qBtmVertRunoff_m3s
+	Deep groundwater
+	Baseflow, refugia
+	nudge_m3s
+	Gauge correction
+	Data trust / confidence only
+	________________
+
+
+5. Internal Time Abstractions (Critical)
+We collapse NWM time semantics into four internal concepts:
+Internal Term
+	Backing Data
+	Now
+	analysis_assim
+	today
+	Short_range (f001-f018)
+	outlook
+	medium_range_blend
+	uncertainty
+	medium_range_mem1-6
+	
+
+No downstream service should reason about f### directly.
+________________
+
+
+6. API Abstraction Layer
+6.1 Core Endpoint (Conceptual)
+GET /hydrology/reach/{feature_id}
+6.2 Query Parameters
+?timeframe=now|today|outlook|uncertainty
+?metric=flow|velocity|runoff|baseflow
+6.3 Example Response (Simplified)
+{
+  "feature_id": 123456,
+  "now": { "flow": 42.1, "velocity": 0.8 },
+  "today": [{ "hour": 3, "flow": 45.2 }],
+  "outlook": { "trend": "rising", "confidence": "medium" }
+}
+
+________________
+7. Common Pitfalls (Do Not Repeat These)
+❌ Using short_range f001 as “current”
+Fix: Always use analysis_assim
+❌ Treating ensemble members as deterministic
+Fix: Use blend for products, members only for probabilities
+❌ Ignoring runoff components
+Fix: Explicitly compute runoff dominance indices
+❌ Mixing gauge-corrected flows into ecological inference
+Fix: Use no_da products for ecology-derived metrics
+________________
+
+
+8. Production Data Pipeline
+Step 1: Ingest (Minimal Set)
+   * analysis_assim/channel_rt
+   * short_range/channel_rt
+   * medium_range_blend/channel_rt
+   * analysis_assim_no_da/channel_rt
+Step 2: Normalize Schema
+All data normalized to:
+(feature_id, valid_time, variable, value)
+Step 3: Derive Fisheries Metrics
+Examples:
+   * Rising limb detection
+   * Flow percentile vs baseline
+   * Velocity suitability windows
+   * Baseflow dominance index
+Raw NWM is not exposed beyond this step.
+Step 4: Cache Strategy
+Product
+	Refresh
+	now
+	hourly
+	today
+	hourly
+	outlook
+	6-12 hrs
+	Refugia indices
+	daily
+	
+
+________________
+
+
+9. Final Rule of Thumb
+If a user-facing feature depends on a raw NWM variable, we have not finished the work yet.
+All value comes from interpretation, abstraction, and ecological context.
+________________
+________________
+
+
+10. Derived Fisheries Metric Definitions
+All user-facing intelligence is derived. Raw NWM variables are never exposed directly.
+10.1 Rising Limb Detection
+Purpose
+Detect hydrologic triggers for hatches, spawning, and fish movement.
+Inputs
+   * streamflow_m3s (short_range)
+Method (conceptual)
+   * Compute first derivative of flow over time
+   * Identify sustained positive slope
+dQ/dt > threshold for ≥ N consecutive timesteps
+Outputs
+   * rising_limb = true | false
+   * rise_intensity = weak | moderate | strong
+Notes
+   * Thresholds vary by species (see Section 12)
+   * Use short_range f001–f006 only
+________________
+
+
+10.2 Flow Percentile vs Baseline
+Purpose
+Normalize flows across rivers of different sizes.
+Inputs
+   * Current streamflow_m3s
+   * Historical flow distribution (rolling climatology)
+Output
+   * flow_percentile (0–100)
+Interpretation
+   * <20 → low / stressed habitat
+   * 40–60 → normal
+   * 80 → high / floodplain connected
+________________
+
+
+10.3 Velocity Suitability Window
+Purpose
+Assess holding water, feeding lanes, and energetic cost.
+Inputs
+   * velocity_ms
+Method
+   * Compare against species-specific preferred ranges
+Output
+   * velocity_suitable = true | false
+   * velocity_class = slow | optimal | fast
+________________
+
+
+10.4 Baseflow Dominance Index (BDI)
+Purpose
+Identify groundwater-supported reaches and thermal refugia.
+Inputs
+   * qBtmVertRunoff_m3s
+   * qBucket_m3s
+   * qSfcLatRunoff_m3s
+Formula (conceptual)
+BDI = (qBtmVertRunoff + qBucket) / (qSfcLatRunoff + qBucket + qBtmVertRunoff)
+Range
+   * 0 → storm-dominated
+   * 1 → baseflow-dominated
+________________
+
+
+11. Confidence & Uncertainty Framework
+We explicitly communicate confidence. We never imply certainty.
+11.1 Sources of Uncertainty
+   * Meteorological forcing uncertainty
+   * Ensemble spread (medium_range)
+   * Distance from gauge influence
+   * Forecast lead time
+________________
+
+
+11.2 Confidence Levels
+Level
+	Definition
+	High
+	Analysis or short_range f001-f0003, low ensemble spread
+	Medium
+	Short_range f004-f012 or stable medium_range_blend
+	Low
+	Long lead times or high ensemble divergence
+	
+
+________________
+
+
+11.3 Ensemble Spread Metric
+Purpose
+Quantify forecast disagreement.
+Method
+spread = stddev(streamflow_mem1..mem6) / mean(streamflow)
+Usage
+   * High spread → lower confidence badge
+   * Used internally for alert gating
+________________
+
+
+11.4 Gauge Influence Flag
+Input
+   * nudge_m3s
+Logic
+   * High absolute nudge → confidence in accuracy, but lower ecological purity
+Used only for internal weighting.
+________________
+
+
+12. Species-Specific Hydrology Rules (Initial Set)
+These rules guide interpretation. Values are configurable and regionally tunable.
+________________
+
+
+12.1 Coldwater Trout (Brown, Rainbow, Cutthroat, Brook)
+Key Signals
+   * Stable or gently rising flows
+   * Moderate velocities
+   * High baseflow dominance
+Preferred Ranges
+   * Velocity: ~0.3–0.8 m/s
+   * Flow percentile: 40–70
+   * BDI: >0.6
+Avoid
+   * Rapid storm-driven spikes
+   * Prolonged low-percentile flows
+________________
+
+
+12.2 Warmwater Bass (Largemouth, Smallmouth, Spotted)
+Key Signals
+   * Rising limbs after warming periods
+   * Higher velocity tolerance
+Preferred Ranges
+   * Velocity: ~0.2–1.2 m/s
+   * Flow percentile: 50–85
+   * BDI: 0.3–0.7
+Triggers
+   * Post-storm stabilization windows
+________________
+
+
+12.3 Anadromous Salmonids (Steelhead, Chinook, Coho)
+Key Signals
+   * Strong rising limbs
+   * Sustained elevated flows
+   * Coastal backwater influence
+Preferred Ranges
+   * Flow percentile: >70
+   * Rising limb intensity: moderate–strong
+Special Rules
+   * Use coastal domains where applicable
+   * Downweight no_da products
+________________
+
+
+12.4 Refugia Identification (All Species)
+Signals
+   * High BDI
+   * Low flow variability
+   * Persistent velocity suitability
+Used to flag:
+   * Summer holdovers
+   * Thermal escape reaches
+________________
+
+
+13. Product Integrity Rule
+If a feature cannot explain why it made a recommendation in hydrologic terms, it should not ship.
+________________
+
+
+14. Hatch-Specific Hydrology Rules
+These rules layer on top of species rules and are used for hatch forecasting, timing windows, and trip recommendations.
+________________
+
+
+14.1 Green Drake (Ephemera guttulata)
+Hydrologic Signature
+   * Sustained moderate–high flows
+   * Gentle recession or very mild rising limb
+   * Strong groundwater influence
+Preferred Conditions
+   * Flow percentile: 55–80
+   * Rising limb: false or weak
+   * Velocity: 0.4–0.9 m/s
+   * BDI: >0.65
+Avoid
+   * Sharp storm-driven spikes
+   * Rapid drawdown
+Notes
+   * Highly sensitive to flow instability
+   * Best signal comes from multi-day stability
+________________
+
+
+14.2 PMD (Ephemerella spp.)
+Hydrologic Signature
+   * Moderate, stable summer flows
+   * Clear recession trends
+Preferred Conditions
+   * Flow percentile: 35–65
+   * Rising limb: false
+   * Velocity: 0.3–0.7 m/s
+   * BDI: >0.55
+Notes
+   * Strongly seasonal; hydrology is permissive, not triggering
+________________
+
+
+14.3 Caddis (Hydropsyche / Brachycentrus)
+Hydrologic Signature
+   * Broad tolerance
+   * Often activated post-disturbance
+Preferred Conditions
+   * Flow percentile: 40–85
+   * Rising limb: weak–moderate
+   * Velocity: 0.4–1.1 m/s
+Notes
+   * More resilient to short-term variability
+   * Often fills gaps between mayfly events
+________________
+
+
+15. Temperature Integration Framework
+Temperature is treated as a co-equal axis with flow, never as an afterthought.
+________________
+
+
+15.1 Temperature Data Sources
+Primary
+   * Modeled stream temperature (when available)
+Secondary / Proxy
+   * Air temperature (forcing)
+   * Baseflow Dominance Index (thermal buffering proxy)
+________________
+
+
+15.2 Thermal Suitability Index (TSI)
+Conceptual Formula
+TSI = f(water_temp, BDI, flow_stability)
+Interpretation
+   * High BDI increases thermal resilience
+   * Rising storm runoff reduces thermal stability
+________________
+
+
+15.3 Temperature Rules (Coldwater Species)
+Temp (Celcius)
+	Interpretation
+	<10
+	Cold, low activity
+	10-16
+	Optimal
+	16-20
+	Stress Increasing
+	>20 
+	Avoid / Thermal Refuge Only
+	
+
+________________
+
+
+16. Formal Scoring Equations (Per Reach, Per Species)
+All product recommendations reduce to transparent, auditable scores.
+________________
+
+
+16.1 Component Scores
+Each component is normalized to 0–1:
+   * Flow suitability score
+   * Velocity suitability score
+   * Stability score (inverse variability)
+   * Thermal suitability score
+________________
+
+
+16.2 Example: Trout Habitat Score
+Score_trout = 
+  0.30 * FlowSuitability
++ 0.25 * VelocitySuitability
++ 0.25 * ThermalSuitability
++ 0.20 * Stability
+Output
+   * 0–0.3: Poor
+   * 0.3–0.6: Fair
+   * 0.6–0.8: Good
+   * 0.8–1.0: Excellent
+________________
+
+
+16.3 Hatch Likelihood Score
+HatchScore = 
+  FlowWindowMatch
+* StabilityWeight
+* ThermalSuitability
+Used for ranking reaches within a region.
+________________
+
+
+17. Validation Framework (Model vs Observed Success)
+We treat validation as ongoing, not one-time.
+________________
+
+
+17.1 Observation Sources
+   * User-submitted trip reports
+   * Hatch reports (when available)
+   * USGS gauges (hydrologic sanity check)
+________________
+
+
+17.2 Validation Metrics
+Metric
+	Meaning
+	Precision
+	How often predictions were correct
+	Recall
+	How often events were captured
+	Lead Time
+	How early signals emrged
+	
+
+________________
+
+
+17.3 Feedback Loop
+   1. Generate prediction
+   2. Observe outcome
+   3. Score performance
+   4. Adjust thresholds / weights
+This loop is mandatory for all new fisheries features.
+________________
+
+
+18. Final Product Rule
+We do not ship black boxes. Every recommendation must be explainable in flow, velocity, temperature, and stability terms.
+________________
+
+
+This document is the authoritative contract between science, engineering, and product.
+Product Wireframe Examples
+
+
+"Heatmap" Discovery Layer
+River Reach Coloring: River segments are colored based on their computed habitat suitability score for the selected species (e.g., green for good, red for poor).
+
+
+Species Filter: A dropdown allows users to switch between species, re-calculating the map scores based on different hydrological rules (e.g., for Trout vs. Bass).
+
+
+Hatch Alerts: Floating badges notify users of potential hatch events, like the "Green Drake", based on specific hydrological triggers.
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+The Reach Detail Screen 
+
+
+When a user taps on a river segment, they are taken to this detailed view. This screen presents the "Internal Time Abstractions" (Now, Today, Outlook) as user-friendly tabs. It focuses on interpreted metrics like "Flow Health" and "Wadability" instead of raw streamflow values.
+
+
+  
+
+Confidence Badge: An explicit indicator of forecast confidence is shown, derived from ensemble spread and gauge influence.
+Forecast Chart & Alert: The "TODAY" tab shows an 18-hour forecast, highlighting a "Rising Limb Detected" event, a key trigger for fish activity.
+Interpreted Metrics: Data is presented in context, such as flow percentile and thermal status, rather than raw numbers.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Ecological Explainability
+
+
+This screen satisfies the "Product Integrity Rule" that every recommendation must be explainable. It provides the ecological context behind the scores and alerts, building trust with the user.
+  
+
+Score Explanations: Each card explains a component of the overall score, such as the "Stability Score," which is based on the Baseflow Dominance Index (BDI).
+
+
+Hatch Logic: The "Hatch Probability" card explains the specific hydrological conditions (receding flows, stable percentiles) that are favorable for a PMD hatch.
+
+
+Thermal Context: The "Temperature Resilience" card explains how groundwater influence (high BDI) acts as a thermal buffer, providing a cool-water refuge even when air temperatures are high.
+
+
+What this gives you immediately
+   * 🎣 Hatch-specific logic that explains why Green Drakes behave differently than PMDs or caddis
+
+   * 🌡️ A temperature integration strategy that doesn’t depend on perfect temp data (BDI as thermal buffer proxy is key)
+
+   * 📊 Formal, auditable scoring equations — no magic numbers hidden in code
+
+   * 🧪 A validation loop that turns user reports into model improvement instead of anecdotes
+
+Why this is strong (strategically)
+      * It’s explainable → defensible to users and partners
+
+      * It’s configurable → region- and species-tunable without rewrites
+
+      * It’s learnable → can evolve into hybrid ML + rules over time
+
+      * It’s hard to copy → because it’s not just NWM, it’s interpretation
+
+Recommended next moves (in priority order)
+         1. Lock this doc as v1.0 and socialize internally
+
+         2. Translate Sections 14–16 into config files (YAML/JSON) owned by science/product
+
+         3. Implement Section 17’s validation loop early — it becomes your long-term moat
+
+         4. Decide where scores surface:
+
+            * Map coloring
+
+            * Reach rankings
+
+            * “Why this is good today” explanations
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+19. Engineering Ticket Breakdown (Execution Plan)
+This section converts the above framework into concrete, actionable engineering work. Tickets are ordered by dependency and value.
+________________
+
+
+EPIC 1: NWM Data Ingestion & Normalization
+Goal: Create a reliable, minimal, fisheries-focused NWM ingestion layer.
+________________
+
+
+Ticket 1.1 – NWM Product Ingestor
+Description
+Build scheduled ingestion for the four canonical NWM products.
+Scope
+               * analysis_assim/channel_rt
+               * short_range/channel_rt
+               * medium_range_blend/channel_rt
+               * analysis_assim_no_da/channel_rt
+Acceptance Criteria
+               * Hourly ingestion succeeds end-to-end
+               * Domain-safe (no cross-domain feature_id mixing)
+               * Failures are logged and alertable
+________________
+
+
+Ticket 1.2 – Time Normalization Service
+Description
+Normalize all NWM outputs into a single time model.
+Output Schema
+(feature_id, valid_time, variable, value, source)
+Acceptance Criteria
+               * f### semantics fully abstracted
+               * valid_time is timezone-aware UTC
+               * No downstream service references filenames
+________________
+
+
+EPIC 2: Derived Hydrology Metrics Engine
+Goal: Translate raw hydrology into interpretable signals.
+________________
+
+
+Ticket 2.1 – Rising Limb Detector
+Description
+Implement rising limb detection on short_range forecasts.
+Logic
+               * Compute dQ/dt
+               * Apply configurable thresholds
+Acceptance Criteria
+               * Outputs boolean + intensity
+               * Unit-tested against synthetic hydrographs
+________________
+
+
+Ticket 2.2 – Baseflow Dominance Index (BDI)
+Description
+Compute BDI using no_da products.
+Acceptance Criteria
+               * Stable 0–1 output
+               * Verified against known groundwater-fed reaches
+________________
+
+
+Ticket 2.3 – Velocity Suitability Classifier
+Description
+Classify velocity suitability per species.
+Acceptance Criteria
+               * Species-aware thresholds
+               * Returns categorical + numeric score
+________________
+
+
+EPIC 3: Temperature & Thermal Suitability
+Goal: Integrate temperature meaningfully into fisheries logic.
+________________
+
+
+Ticket 3.1 – Temperature Ingestion Layer
+Description
+Ingest modeled stream temperature or approved proxies.
+Acceptance Criteria
+               * Graceful fallback when temp is unavailable
+               * Explicit source tagging
+________________
+
+
+Ticket 3.2 – Thermal Suitability Index (TSI)
+Description
+Compute TSI using temperature, BDI, and flow stability.
+Acceptance Criteria
+               * Normalized 0–1 output
+               * Species-aware thresholds
+________________
+
+
+EPIC 4: Species & Hatch Scoring Framework
+Goal: Produce explainable, species-specific scores.
+________________
+
+
+Ticket 4.1 – Species Scoring Engine
+Description
+Implement formal scoring equations per species.
+Acceptance Criteria
+               * Config-driven weights
+               * Deterministic, auditable output
+________________
+
+
+Ticket 4.2 – Hatch Likelihood Engine
+Description
+Implement hatch-specific scoring rules (Green Drake, PMD, Caddis).
+Acceptance Criteria
+               * Species + hatch aware
+               * Outputs likelihood + explanation fields
+________________
+
+
+EPIC 5: Confidence & Uncertainty
+Goal: Communicate trust correctly.
+________________
+
+
+Ticket 5.1 – Ensemble Spread Calculator
+Description
+Compute forecast spread from medium_range ensemble members.
+Acceptance Criteria
+               * Produces numeric spread metric
+               * Cached per reach per timestep
+________________
+
+
+Ticket 5.2 – Confidence Classification Service
+Description
+Translate spread, lead time, and nudge into confidence levels.
+Acceptance Criteria
+               * Outputs High / Medium / Low
+               * Matches framework definitions exactly
+________________
+
+
+EPIC 6: API & Product Integration
+Goal: Expose clean, stable interfaces to product.
+________________
+
+
+Ticket 6.1 – Hydrology Reach API
+Description
+Expose reach-level hydrology via internal API.
+Endpoint
+GET /hydrology/reach/{feature_id}
+Acceptance Criteria
+               * Supports now / today / outlook
+               * Never exposes raw NWM variables
+________________
+
+
+Ticket 6.2 – Fisheries Intelligence API
+Description
+Expose species and hatch scores to product.
+Acceptance Criteria
+               * Includes explanation payloads
+               * Includes confidence classification
+________________
+
+
+EPIC 7: Validation & Feedback Loop
+Goal: Close the loop between prediction and reality.
+________________
+
+
+Ticket 7.1 – Observation Ingestion
+Description
+Ingest user trip reports and hatch observations.
+Acceptance Criteria
+               * Time- and reach-aligned
+               * Privacy-safe
+________________
+
+
+Ticket 7.2 – Model Performance Scoring
+Description
+Compute precision, recall, and lead time metrics.
+Acceptance Criteria
+               * Stored historically
+               * Viewable by science team
+________________
+
+
+Ticket 7.3 – Threshold Calibration Tooling
+Description
+Enable controlled adjustment of thresholds and weights.
+Acceptance Criteria
+               * Config-only changes
+               * Versioned and auditable
+________________
+
+
+20. Delivery Guidance
+Suggested Order
+               1. EPIC 1 → 2 → 4
+               2. Parallelize EPIC 3 and 5
+               3. Ship EPIC 6 once scores are stable
+               4. EPIC 7 runs continuously
+________________
+
+
+Shipping raw hydrology is easy. Shipping trusted fisheries intelligence is the work.

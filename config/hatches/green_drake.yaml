@@ -1,0 +1,21 @@
+name: "Green Drake"
+species: "Ephemera guttulata"
+
+hydrologic_signature:
+  flow_percentile:
+    min: 55
+    max: 80
+  rising_limb:
+    allowed: ["false", "weak"]
+  velocity:
+    min: 0.4
+    max: 0.9
+  bdi_threshold: 0.65
+
+temporal_window:
+  start_day_of_year: 135  # Mid-May
+  end_day_of_year: 180    # Late June
+
+geographic_range:
+  - "eastern_us"
+  - "midwest"
