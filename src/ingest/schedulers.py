@@ -236,6 +236,7 @@ class IngestionScheduler:
         Insert hydrology data into hydro_timeseries table.
 
         Uses TimeNormalizer to convert to canonical time abstraction.
+        Uses PostgreSQL COPY for fast bulk insertion.
 
         Args:
             df: Parsed NWM data
@@ -262,24 +263,88 @@ class IngestionScheduler:
         # Convert records to DataFrame for bulk insertion
         records_df = TimeNormalizer.records_to_dataframe(records)
 
-        # Insert into database with conflict handling
+        # Use PostgreSQL COPY for fast bulk insert
+        logger.info(f"Inserting {len(records):,} records using PostgreSQL COPY")
+        self._bulk_insert_with_copy(records_df)
+
+        logger.info(f"Inserted {len(records):,} variable records")
+        return len(records)
+
+    def _bulk_insert_with_copy(self, df: pd.DataFrame):
+        """
+        Fast bulk insert using PostgreSQL COPY command.
+
+        This is 10-100x faster than executemany() for large datasets.
+
+        Args:
+            df: DataFrame with columns: feature_id, valid_time, variable, value, source, forecast_hour
+        """
+        from io import StringIO
+        import csv
+
+        # Create a temporary table for staging
         with self.engine.begin() as conn:
+            # Step 1: Create temp table with same structure
             conn.execute(text("""
+                CREATE TEMP TABLE hydro_timeseries_staging (
+                    feature_id BIGINT,
+                    valid_time TIMESTAMPTZ,
+                    variable VARCHAR(50),
+                    value DOUBLE PRECISION,
+                    source VARCHAR(50),
+                    forecast_hour SMALLINT
+                ) ON COMMIT DROP;
+            """))
+
+            # Step 2: Use COPY to load data into temp table (very fast)
+            # Handle NULLs properly for PostgreSQL
+            buffer = StringIO()
+            df.to_csv(
+                buffer,
+                index=False,
+                header=False,
+                sep='\t',
+                na_rep='',  # Empty string for NULL
+                quoting=csv.QUOTE_NONE
+            )
+            buffer.seek(0)
+
+            # Get raw connection for COPY
+            raw_conn = conn.connection
+            cursor = raw_conn.cursor()
+
+            try:
+                cursor.copy_expert(
+                    """
+                    COPY hydro_timeseries_staging (
+                        feature_id, valid_time, variable, value, source, forecast_hour
+                    )
+                    FROM STDIN WITH (FORMAT CSV, DELIMITER E'\\t', NULL '')
+                    """,
+                    buffer
+                )
+                logger.info(f"COPY completed: {len(df):,} rows loaded to staging table")
+
+            except Exception as e:
+                logger.error(f"COPY failed: {e}")
+                raise
+
+            # Step 3: Insert from staging to final table with conflict handling
+            result = conn.execute(text("""
                 INSERT INTO hydro_timeseries (
-                    feature_id, valid_time, variable, value, source, forecast_hour
+                    feature_id, valid_time, variable, value, source, forecast_hour, ingested_at
                 )
-                VALUES (
-                    :feature_id, :valid_time, :variable, :value, :source, :forecast_hour
-                )
+                SELECT
+                    feature_id, valid_time, variable, value, source, forecast_hour, NOW()
+                FROM hydro_timeseries_staging
                 ON CONFLICT (feature_id, valid_time, variable, source)
                 DO UPDATE SET
                     value = EXCLUDED.value,
                     forecast_hour = EXCLUDED.forecast_hour,
                     ingested_at = NOW();
-            """), records_df.to_dict('records'))
+            """))
 
-        logger.info(f"Inserted {len(records)} variable records")
-        return len(records)
+            logger.info("Data merged from staging to final table")
 
     def ingest_analysis_assim(self, cycle_time: Optional[datetime] = None):
         """
