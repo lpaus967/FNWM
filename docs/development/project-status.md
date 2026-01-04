@@ -148,16 +148,18 @@ python scripts/test_db_connection.py
 
 If you get errors, see **AWS_RDS_SETUP.md** troubleshooting section.
 
-### Step 4: Start Coding - EPIC 2 (NEXT)
+### Step 4: Start Coding - EPIC 2 (IN PROGRESS)
 
-EPIC 1 is complete! Next up:
+EPIC 1 is complete! EPIC 2 in progress:
 
 **EPIC 2: Derived Hydrology Metrics Engine**
 
-Follow the **IMPLEMENTATION_GUIDE.md** for:
-- Ticket 2.1: Rising Limb Detector
-- Ticket 2.2: Baseflow Dominance Index (BDI)
-- Ticket 2.3: Velocity Suitability Classifier
+Progress:
+- ✅ Ticket 2.1: Rising Limb Detector - **COMPLETE**
+- ✅ Ticket 2.2: Baseflow Dominance Index (BDI) - **COMPLETE**
+- ✅ Ticket 2.3: Velocity Suitability Classifier - **COMPLETE**
+
+**EPIC 2 COMPLETE!** All derived hydrology metrics implemented and verified!
 
 See IMPLEMENTATION_GUIDE.md for complete code examples and acceptance criteria.
 
@@ -308,9 +310,40 @@ Pre-commit hooks will automatically:
   - No raw NWM complexity in database
 `
 ### EPIC 2: Derived Hydrology Metrics Engine
-- [ ] Ticket 2.1 - Rising Limb Detector
-- [ ] Ticket 2.2 - Baseflow Dominance Index (BDI)
-- [ ] Ticket 2.3 - Velocity Suitability Classifier
+- [x] **Ticket 2.1 - Rising Limb Detector** ✅
+  - Created `src/metrics/rising_limb.py` (500+ lines) - Config-driven rising limb detection
+  - Created `config/thresholds/rising_limb.yaml` - Default and species-specific thresholds
+  - Created `tests/unit/test_rising_limb.py` - Comprehensive unit tests (25+ test cases)
+  - Created `scripts/dev/verify_rising_limb.py` - Standalone verification script
+  - Detects sustained rising limbs in streamflow data
+  - Classifies intensity: weak/moderate/strong
+  - Species-specific configuration support (e.g., anadromous salmonid)
+  - Handles edge cases: missing data, short series, stable flow
+  - Generates human-readable explanations
+  - **All acceptance criteria met and verified!**
+- [x] **Ticket 2.2 - Baseflow Dominance Index (BDI)** ✅
+  - Created `src/metrics/baseflow.py` (450+ lines) - BDI calculation and classification
+  - Created `tests/unit/test_baseflow.py` - Comprehensive unit tests (30+ test cases)
+  - Created `scripts/dev/test_bdi_calculator.py` - Database integration test
+  - Computes BDI from NWM flow components (qBtmVertRunoff, qBucket, qSfcLatRunoff)
+  - Returns normalized 0-1 value (0=storm-dominated, 1=groundwater-fed)
+  - Classifies into ecological categories: groundwater_fed/mixed/storm_dominated
+  - Time series computation and statistical analysis
+  - Generates ecological interpretations
+  - Handles edge cases: zero flow, missing data
+  - **Successfully tested with database: found groundwater-fed reach (BDI=1.0)**
+- [x] **Ticket 2.3 - Velocity Suitability Classifier** ✅
+  - Created `src/metrics/velocity.py` (400+ lines) - Species-aware velocity classification
+  - Uses existing `config/species/trout.yaml` for velocity thresholds
+  - Created `tests/unit/test_velocity.py` - Comprehensive unit tests (40+ test cases)
+  - Created `scripts/dev/test_velocity_classifier.py` - Database integration test
+  - Classifies velocity: too_slow/optimal/fast/too_fast
+  - Returns categorical classification + numeric score (0-1)
+  - Gradient scoring for sub-optimal velocities
+  - Species-specific thresholds (different fish prefer different velocities)
+  - Time series analysis and statistics
+  - Generates ecological habitat interpretations
+  - **Successfully tested with database: correctly identified slow-velocity reach**
 
 ### EPIC 3: Temperature & Thermal Suitability
 - [ ] Ticket 3.1 - Temperature Ingestion Layer

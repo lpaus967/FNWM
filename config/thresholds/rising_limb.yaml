@@ -1,5 +1,5 @@
 default:
-  min_slope: 0.5  # m³/s per hour
+  min_slope: 0.5  # m3/s per hour (cubic meters per second)
   min_duration: 3  # consecutive hours
   intensity_thresholds:
     weak: 0.5
