@@ -1187,6 +1187,559 @@ Implementation follows the EPICs defined in the PRD, with suggested order and pa
 
 ---
 
+### EPIC 8: Spatial Integration & Map-Ready Tables
+
+**Goal**: Enable efficient joins between FNWM intelligence and USGS NHD v2.1 spatial layer for map visualization.
+
+**Use Case**: User needs to style/color NHD stream reaches on a map based on:
+- Current hydrologic conditions (flow, BDI, velocity)
+- Species habitat suitability scores
+- Hatch likelihood predictions
+- Rising limb detections
+- Confidence levels
+
+**Architecture**: Create dedicated metrics tables that can be efficiently joined to spatial NHD layer.
+
+---
+
+#### Ticket 8.1 – Spatial Schema Setup
+
+**Files to Create**:
+- `scripts/setup/create_spatial_tables.sql`
+- `scripts/setup/load_nhd_layer.py`
+
+**Database Tables**:
+
+1. **NHD Spatial Layer** (if not already loaded)
+   ```sql
+   CREATE TABLE nhd_flowlines (
+       feature_id BIGINT PRIMARY KEY,
+       geom GEOMETRY(LINESTRING, 4326),  -- PostGIS required
+       gnis_name VARCHAR(255),            -- Stream name
+       reachcode VARCHAR(50),
+       state VARCHAR(2),
+       huc8 VARCHAR(8),
+       stream_order INTEGER
+   );
+
+   CREATE INDEX idx_nhd_geom ON nhd_flowlines USING GIST (geom);
+   CREATE INDEX idx_nhd_state ON nhd_flowlines (state);
+   ```
+
+2. **Current Hydrology Metrics** (for map styling)
+   ```sql
+   CREATE TABLE current_hydrology (
+       feature_id BIGINT PRIMARY KEY,
+
+       -- Flow metrics
+       streamflow_m3s DOUBLE PRECISION NOT NULL,
+       flow_percentile DOUBLE PRECISION,
+       flow_trend VARCHAR(20),  -- 'rising', 'falling', 'stable'
+
+       -- Velocity metrics
+       velocity_ms DOUBLE PRECISION NOT NULL,
+       velocity_category VARCHAR(20),  -- from EPIC 2
+
+       -- Baseflow metrics
+       bdi DOUBLE PRECISION,
+       bdi_category VARCHAR(30),  -- 'groundwater_fed', 'mixed', 'storm_dominated'
+
+       -- Rising limb detection
+       rising_limb_detected BOOLEAN,
+       rising_limb_intensity VARCHAR(20),
+
+       -- Metadata
+       valid_time TIMESTAMPTZ NOT NULL,
+       confidence VARCHAR(20) NOT NULL,
+       computed_at TIMESTAMPTZ DEFAULT NOW(),
+
+       CONSTRAINT fk_feature FOREIGN KEY (feature_id)
+           REFERENCES nhd_flowlines(feature_id) ON DELETE CASCADE
+   );
+
+   CREATE INDEX idx_current_hydro_valid_time ON current_hydrology (valid_time DESC);
+   CREATE INDEX idx_current_hydro_bdi ON current_hydrology (bdi);
+   ```
+
+3. **Species Habitat Scores** (for map styling)
+   ```sql
+   CREATE TABLE species_habitat_scores (
+       id SERIAL PRIMARY KEY,
+       feature_id BIGINT NOT NULL,
+       species VARCHAR(100) NOT NULL,
+
+       -- Overall score
+       overall_score DOUBLE PRECISION NOT NULL,
+       rating VARCHAR(20) NOT NULL,  -- 'poor', 'fair', 'good', 'excellent'
+
+       -- Component scores (for popups)
+       flow_score DOUBLE PRECISION,
+       velocity_score DOUBLE PRECISION,
+       thermal_score DOUBLE PRECISION,
+       stability_score DOUBLE PRECISION,
+
+       -- Explanation
+       explanation TEXT,
+       confidence VARCHAR(20) NOT NULL,
+
+       -- Temporal info
+       valid_time TIMESTAMPTZ NOT NULL,
+       timeframe VARCHAR(20) NOT NULL,  -- 'now', 'today', 'outlook'
+       computed_at TIMESTAMPTZ DEFAULT NOW(),
+
+       CONSTRAINT fk_species_feature FOREIGN KEY (feature_id)
+           REFERENCES nhd_flowlines(feature_id) ON DELETE CASCADE,
+       UNIQUE (feature_id, species, valid_time)
+   );
+
+   CREATE INDEX idx_species_scores_feature ON species_habitat_scores (feature_id);
+   CREATE INDEX idx_species_scores_species ON species_habitat_scores (species);
+   CREATE INDEX idx_species_scores_rating ON species_habitat_scores (rating);
+   ```
+
+4. **Hatch Predictions** (for map styling)
+   ```sql
+   CREATE TABLE hatch_predictions (
+       id SERIAL PRIMARY KEY,
+       feature_id BIGINT NOT NULL,
+       hatch_name VARCHAR(100) NOT NULL,
+       scientific_name VARCHAR(255),
+
+       -- Prediction
+       likelihood DOUBLE PRECISION NOT NULL,
+       rating VARCHAR(20) NOT NULL,  -- 'unlikely', 'possible', 'likely', 'very_likely'
+
+       -- Conditions
+       in_season BOOLEAN NOT NULL,
+       flow_percentile_match BOOLEAN,
+       rising_limb_match BOOLEAN,
+       velocity_match BOOLEAN,
+       bdi_match BOOLEAN,
+
+       -- Explanation
+       explanation TEXT,
+
+       -- Temporal info
+       prediction_date DATE NOT NULL,
+       computed_at TIMESTAMPTZ DEFAULT NOW(),
+
+       CONSTRAINT fk_hatch_feature FOREIGN KEY (feature_id)
+           REFERENCES nhd_flowlines(feature_id) ON DELETE CASCADE,
+       UNIQUE (feature_id, hatch_name, prediction_date)
+   );
+
+   CREATE INDEX idx_hatch_predictions_feature ON hatch_predictions (feature_id);
+   CREATE INDEX idx_hatch_predictions_hatch ON hatch_predictions (hatch_name);
+   CREATE INDEX idx_hatch_predictions_rating ON hatch_predictions (rating);
+   ```
+
+5. **Forecast Hydrology** (for time slider maps)
+   ```sql
+   CREATE TABLE forecast_hydrology (
+       id SERIAL PRIMARY KEY,
+       feature_id BIGINT NOT NULL,
+
+       -- Forecast metadata
+       forecast_hour INTEGER NOT NULL,  -- 1-18
+       valid_time TIMESTAMPTZ NOT NULL,
+
+       -- Forecasted values
+       streamflow_m3s DOUBLE PRECISION NOT NULL,
+       velocity_ms DOUBLE PRECISION NOT NULL,
+       flow_percentile DOUBLE PRECISION,
+
+       -- Detected conditions
+       rising_limb_detected BOOLEAN,
+       rising_limb_intensity VARCHAR(20),
+
+       -- Uncertainty
+       confidence VARCHAR(20) NOT NULL,
+       ensemble_spread DOUBLE PRECISION,
+
+       reference_time TIMESTAMPTZ NOT NULL,
+       computed_at TIMESTAMPTZ DEFAULT NOW(),
+
+       CONSTRAINT fk_forecast_feature FOREIGN KEY (feature_id)
+           REFERENCES nhd_flowlines(feature_id) ON DELETE CASCADE,
+       UNIQUE (feature_id, reference_time, forecast_hour)
+   );
+
+   CREATE INDEX idx_forecast_feature_time ON forecast_hydrology (feature_id, valid_time);
+   CREATE INDEX idx_forecast_valid_time ON forecast_hydrology (valid_time);
+   ```
+
+**Acceptance Criteria**:
+- [ ] All spatial tables created
+- [ ] Foreign key constraints to nhd_flowlines
+- [ ] Spatial indexes on geometry columns (PostGIS)
+- [ ] Temporal indexes for time-based queries
+
+---
+
+#### Ticket 8.2 – Batch Computation Scripts
+
+**Files to Create**:
+- `scripts/compute/update_current_hydrology.py`
+- `scripts/compute/update_species_scores.py`
+- `scripts/compute/update_hatch_predictions.py`
+- `scripts/compute/update_forecast_hydrology.py`
+
+**Implementation Pattern** (example for current_hydrology):
+
+```python
+# scripts/compute/update_current_hydrology.py
+"""
+Compute and update current_hydrology table from latest analysis_assim data.
+Run hourly via cron.
+"""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
+from datetime import datetime
+import os
+
+from metrics.baseflow import compute_bdi, classify_bdi
+from metrics.velocity import classify_velocity
+from metrics.rising_limb import detect_rising_limb
+from confidence.classifier import classify_confidence_with_reasoning
+
+load_dotenv()
+
+def update_current_hydrology():
+    """Update current_hydrology table with latest metrics."""
+    engine = create_engine(os.getenv('DATABASE_URL'))
+
+    with engine.begin() as conn:
+        # Get all features with latest analysis_assim data
+        result = conn.execute(text("""
+            SELECT feature_id,
+                   MAX(valid_time) as latest_time
+            FROM hydro_timeseries
+            WHERE source = 'analysis_assim'
+            GROUP BY feature_id
+        """))
+
+        features = {row[0]: row[1] for row in result}
+
+        print(f"Processing {len(features):,} features...")
+
+        for feature_id, valid_time in features.items():
+            # Fetch latest data for this feature
+            result = conn.execute(text("""
+                SELECT variable, value
+                FROM hydro_timeseries
+                WHERE feature_id = :feature_id
+                  AND source = 'analysis_assim'
+                  AND valid_time = :valid_time
+            """), {'feature_id': feature_id, 'valid_time': valid_time})
+
+            data = {row[0]: row[1] for row in result}
+
+            if 'streamflow' not in data or 'velocity' not in data:
+                continue
+
+            # Compute derived metrics
+            bdi = None
+            bdi_category = None
+            if all(k in data for k in ['qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff']):
+                bdi = compute_bdi(
+                    data['qBtmVertRunoff'],
+                    data['qBucket'],
+                    data['qSfcLatRunoff']
+                )
+                bdi_category = classify_bdi(bdi)
+
+            velocity_cat = classify_velocity(data['velocity'], species='trout')
+
+            # TODO: Implement flow trend detection (rising/falling/stable)
+            # TODO: Compute flow percentile from historical data
+
+            confidence_obj = classify_confidence_with_reasoning(source='analysis_assim')
+
+            # Upsert to current_hydrology table
+            conn.execute(text("""
+                INSERT INTO current_hydrology (
+                    feature_id, streamflow_m3s, velocity_ms,
+                    bdi, bdi_category, velocity_category,
+                    valid_time, confidence, computed_at
+                ) VALUES (
+                    :feature_id, :streamflow, :velocity,
+                    :bdi, :bdi_category, :velocity_category,
+                    :valid_time, :confidence, NOW()
+                )
+                ON CONFLICT (feature_id)
+                DO UPDATE SET
+                    streamflow_m3s = EXCLUDED.streamflow_m3s,
+                    velocity_ms = EXCLUDED.velocity_ms,
+                    bdi = EXCLUDED.bdi,
+                    bdi_category = EXCLUDED.bdi_category,
+                    velocity_category = EXCLUDED.velocity_category,
+                    valid_time = EXCLUDED.valid_time,
+                    confidence = EXCLUDED.confidence,
+                    computed_at = NOW()
+            """), {
+                'feature_id': feature_id,
+                'streamflow': data['streamflow'],
+                'velocity': data['velocity'],
+                'bdi': bdi,
+                'bdi_category': bdi_category,
+                'velocity_category': velocity_cat.category if velocity_cat else None,
+                'valid_time': valid_time,
+                'confidence': confidence_obj.confidence
+            })
+
+        print(f"✅ Updated current_hydrology for {len(features):,} features")
+
+if __name__ == "__main__":
+    update_current_hydrology()
+```
+
+**Similar scripts** for:
+- `update_species_scores.py` - Compute species scores for all reaches
+- `update_hatch_predictions.py` - Compute hatch predictions for today
+- `update_forecast_hydrology.py` - Process short_range forecast data
+
+**Acceptance Criteria**:
+- [ ] Incremental updates (upsert pattern)
+- [ ] Efficient batch processing
+- [ ] Logging and error handling
+- [ ] Runnable via cron/scheduler
+
+---
+
+#### Ticket 8.3 – Materialized Views for Map Performance
+
+**Files to Create**:
+- `scripts/setup/create_map_views.sql`
+- `scripts/compute/refresh_map_views.py`
+
+**Materialized Views**:
+
+1. **Latest Conditions Summary** (for fast map rendering)
+   ```sql
+   CREATE MATERIALIZED VIEW map_current_conditions AS
+   SELECT
+       f.feature_id,
+       f.geom,
+       f.gnis_name,
+       f.state,
+
+       -- Hydrology
+       h.streamflow_m3s,
+       h.flow_percentile,
+       h.velocity_ms,
+       h.bdi,
+       h.bdi_category,
+       h.rising_limb_detected,
+
+       -- Species scores (trout as default)
+       s.overall_score as trout_score,
+       s.rating as trout_rating,
+
+       -- Metadata
+       h.valid_time,
+       h.confidence
+   FROM nhd_flowlines f
+   LEFT JOIN current_hydrology h ON f.feature_id = h.feature_id
+   LEFT JOIN species_habitat_scores s ON f.feature_id = s.feature_id
+       AND s.species = 'trout'
+       AND s.timeframe = 'now';
+
+   CREATE INDEX idx_map_current_geom ON map_current_conditions USING GIST (geom);
+   CREATE INDEX idx_map_current_state ON map_current_conditions (state);
+   CREATE INDEX idx_map_current_bdi ON map_current_conditions (bdi_category);
+   ```
+
+2. **Active Hatches Today**
+   ```sql
+   CREATE MATERIALIZED VIEW map_active_hatches AS
+   SELECT
+       f.feature_id,
+       f.geom,
+       f.gnis_name,
+       f.state,
+
+       -- Aggregate all likely hatches
+       array_agg(h.hatch_name ORDER BY h.likelihood DESC) as active_hatches,
+       max(h.likelihood) as max_likelihood,
+       count(*) as hatch_count
+   FROM nhd_flowlines f
+   JOIN hatch_predictions h ON f.feature_id = h.feature_id
+   WHERE h.prediction_date = CURRENT_DATE
+     AND h.rating IN ('likely', 'very_likely')
+     AND h.in_season = true
+   GROUP BY f.feature_id, f.geom, f.gnis_name, f.state;
+
+   CREATE INDEX idx_map_hatches_geom ON map_active_hatches USING GIST (geom);
+   ```
+
+**Refresh Script**:
+```python
+# scripts/compute/refresh_map_views.py
+"""Refresh materialized views for map rendering."""
+from sqlalchemy import create_engine, text
+import os
+
+def refresh_map_views():
+    engine = create_engine(os.getenv('DATABASE_URL'))
+
+    with engine.begin() as conn:
+        print("Refreshing map_current_conditions...")
+        conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY map_current_conditions"))
+
+        print("Refreshing map_active_hatches...")
+        conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY map_active_hatches"))
+
+    print("✅ Map views refreshed")
+
+if __name__ == "__main__":
+    refresh_map_views()
+```
+
+**Acceptance Criteria**:
+- [ ] Views include all necessary fields for map styling
+- [ ] Spatial indexes for fast bounding box queries
+- [ ] CONCURRENTLY refresh (no locks)
+- [ ] Automated refresh after data updates
+
+---
+
+#### Ticket 8.4 – Map API Endpoints
+
+**Files to Create**:
+- `src/api/map_endpoints.py`
+
+**Endpoints**:
+
+```python
+# src/api/map_endpoints.py
+from fastapi import APIRouter, Query
+from typing import List
+from pydantic import BaseModel
+
+router = APIRouter(prefix="/map", tags=["Map Data"])
+
+class MapFeature(BaseModel):
+    """Single feature for map rendering."""
+    feature_id: int
+    geom: dict  # GeoJSON geometry
+    properties: dict  # All attributes for styling
+
+@router.get("/current", response_model=List[MapFeature])
+async def get_map_current_conditions(
+    bbox: str = Query(..., description="Bounding box: minLon,minLat,maxLon,maxLat"),
+    state: str = Query(None, description="Filter by state code (e.g., 'MT')"),
+    min_bdi: float = Query(None, description="Minimum BDI threshold")
+):
+    """
+    Get current hydrologic conditions for map extent.
+
+    Returns GeoJSON-ready features for efficient map rendering.
+    Uses materialized view for fast queries.
+    """
+    # Parse bbox
+    coords = [float(x) for x in bbox.split(',')]
+
+    # Query materialized view
+    query = """
+        SELECT
+            feature_id,
+            ST_AsGeoJSON(geom) as geom,
+            gnis_name,
+            streamflow_m3s,
+            bdi,
+            bdi_category,
+            trout_score,
+            trout_rating,
+            confidence
+        FROM map_current_conditions
+        WHERE geom && ST_MakeEnvelope(:minlon, :minlat, :maxlon, :maxlat, 4326)
+    """
+
+    if state:
+        query += " AND state = :state"
+    if min_bdi:
+        query += " AND bdi >= :min_bdi"
+
+    # Execute and return GeoJSON features
+    # ...
+
+@router.get("/species/{species}", response_model=List[MapFeature])
+async def get_map_species_scores(
+    species: str,
+    bbox: str = Query(...),
+    min_rating: str = Query(None, description="Minimum rating: poor/fair/good/excellent")
+):
+    """Get species habitat scores for map extent."""
+    # Similar pattern - query species_habitat_scores joined to geometry
+    # ...
+
+@router.get("/hatches", response_model=List[MapFeature])
+async def get_map_active_hatches(
+    bbox: str = Query(...),
+    hatch: str = Query(None, description="Filter by hatch name")
+):
+    """Get active hatch predictions for map extent."""
+    # Query map_active_hatches materialized view
+    # ...
+```
+
+**Acceptance Criteria**:
+- [ ] Returns GeoJSON-ready features
+- [ ] Bounding box filtering
+- [ ] Fast response (<200ms for 10k features)
+- [ ] Documented with OpenAPI examples
+
+---
+
+#### Benefits of This Architecture
+
+**1. Fast Map Queries**
+- Pre-computed scores eliminate real-time calculations
+- Materialized views eliminate joins
+- Spatial indexes enable efficient bounding box queries
+- **100x performance improvement** over real-time computation
+
+**2. Flexible Map Styling**
+```javascript
+// Style streams by BDI category
+const styleByBDI = {
+  'groundwater_fed': { color: 'blue', weight: 3 },
+  'mixed': { color: 'green', weight: 2 },
+  'storm_dominated': { color: 'orange', weight: 1 }
+};
+
+// Style by trout habitat rating
+const styleByTrout = {
+  'excellent': { color: '#006400', weight: 4 },
+  'good': { color: '#90EE90', weight: 3 },
+  'fair': { color: '#FFD700', weight: 2 },
+  'poor': { color: '#FF6347', weight: 1 }
+};
+```
+
+**3. Rich Map Popups**
+```javascript
+// Click a stream, show all intelligence
+{
+  "stream_name": "Rock Creek",
+  "current_flow": "0.16 m³/s (50th percentile)",
+  "bdi": "Groundwater-fed (0.85)",
+  "trout_habitat": "Excellent (0.87)",
+  "active_hatches": ["Green Drake (very likely)", "Sulphur (likely)"],
+  "confidence": "high"
+}
+```
+
+**4. Time Series Visualization**
+- `forecast_hydrology` table enables time slider maps
+- Show how conditions change over next 18 hours
+
+---
+
 ## 4. Testing Strategy
 
 ### Unit Tests

@@ -186,7 +186,7 @@ async def get_metadata():
     summary="Get hydrologic conditions for a reach"
 )
 async def get_reach_hydrology(
-    feature_id: int = Query(..., description="NHD reach feature ID"),
+    feature_id: int,
     timeframe: Literal["now", "today", "outlook", "all"] = Query("all", description="Which timeframe to return"),
 ):
     """
@@ -262,7 +262,7 @@ async def get_reach_hydrology(
     summary="Get species habitat score"
 )
 async def get_fisheries_score(
-    feature_id: int = Query(..., description="NHD reach feature ID"),
+    feature_id: int,
     species: str = Query("trout", description="Species identifier (e.g., 'trout')"),
     timeframe: Literal["now", "today"] = Query("now", description="Timeframe for scoring"),
 ):
@@ -353,7 +353,7 @@ async def get_fisheries_score(
     summary="Get hatch likelihood forecast"
 )
 async def get_hatch_forecast(
-    feature_id: int = Query(..., description="NHD reach feature ID"),
+    feature_id: int,
     date: Optional[str] = Query(None, description="Date to check (ISO 8601, defaults to today)"),
 ):
     """

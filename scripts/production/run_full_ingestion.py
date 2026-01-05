@@ -95,19 +95,25 @@ def run_full_ingestion_for_date(target_date: datetime):
         logger.info("=" * 80)
 
     # Product 4: analysis_assim_no_da (non-assimilated)
-    logger.info("\n" + "=" * 80)
-    logger.info("PRODUCT 4/4: analysis_assim_no_da (non-assimilated, ALL reaches)")
-    logger.info("=" * 80)
-    try:
-        records = scheduler.ingest_product(
-            product="analysis_assim_no_da",
-            reference_time=target_date,
-            forecast_hour=0
-        )
-        total_records += records
-        logger.info(f"✅ analysis_assim_no_da: {records:,} records")
-    except Exception as e:
-        logger.error(f"❌ analysis_assim_no_da failed: {e}")
+    # Only runs at 00Z (midnight UTC)
+    if target_date.hour == 0:
+        logger.info("\n" + "=" * 80)
+        logger.info("PRODUCT 4/4: analysis_assim_no_da (non-assimilated, ALL reaches)")
+        logger.info("=" * 80)
+        try:
+            records = scheduler.ingest_product(
+                product="analysis_assim_no_da",
+                reference_time=target_date,
+                forecast_hour=0
+            )
+            total_records += records
+            logger.info(f"✅ analysis_assim_no_da: {records:,} records")
+        except Exception as e:
+            logger.error(f"❌ analysis_assim_no_da failed: {e}")
+    else:
+        logger.info("\n" + "=" * 80)
+        logger.info(f"PRODUCT 4/4: analysis_assim_no_da SKIPPED (only runs at 00Z, got {target_date.hour}Z)")
+        logger.info("=" * 80)
 
     # Summary
     logger.info("\n" + "=" * 80)
