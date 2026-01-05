@@ -349,9 +349,27 @@ Pre-commit hooks will automatically:
 - [ ] Ticket 3.1 - Temperature Ingestion Layer
 - [ ] Ticket 3.2 - Thermal Suitability Index (TSI)
 
-### EPIC 4: Species & Hatch Scoring Framework
-- [ ] Ticket 4.1 - Species Scoring Engine
-- [ ] Ticket 4.2 - Hatch Likelihood Engine
+**Note**: EPIC 3 deferred until air temperature API configured. Proceeding with EPIC 4 using temporary workaround.
+
+### EPIC 4: Species & Hatch Scoring Framework ✅ **COMPLETE**
+- [x] Ticket 4.1 - Species Scoring Engine ✅
+  - Created `src/species/scoring.py` (449 lines)
+  - Multi-component habitat scoring (flow, velocity, stability, thermal)
+  - Config-driven weights and thresholds
+  - 34 unit tests, 94% coverage
+  - Generates explainable, auditable scores
+- [x] Ticket 4.2 - Hatch Likelihood Engine ✅
+  - Created `src/hatches/likelihood.py` (446 lines)
+  - Hydrologic signature matching
+  - Seasonal gating logic
+  - 33 unit tests, 94% coverage
+  - Returns likelihood + detailed explanations
+
+**⚠️ TEMPORARY WORKAROUND ACTIVE**: Species scoring implemented without thermal component.
+- Thermal weight set to 0.00 (originally 0.25)
+- Weights redistributed: flow=0.40, velocity=0.33, stability=0.27
+- See `docs/development/epic-4-thermal-workaround.md` for refactoring instructions
+- See `docs/development/epic-4-completion-summary.md` for full details
 
 ### EPIC 5: Confidence & Uncertainty
 - [ ] Ticket 5.1 - Ensemble Spread Calculator

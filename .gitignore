@@ -103,3 +103,16 @@ secrets/
 
 # OS specific
 Thumbs.db
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfvars
+*.tfvars
+.terraform.tfstate.lock.info
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
