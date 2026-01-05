@@ -371,9 +371,20 @@ Pre-commit hooks will automatically:
 - See `docs/development/epic-4-thermal-workaround.md` for refactoring instructions
 - See `docs/development/epic-4-completion-summary.md` for full details
 
-### EPIC 5: Confidence & Uncertainty
-- [ ] Ticket 5.1 - Ensemble Spread Calculator
-- [ ] Ticket 5.2 - Confidence Classification Service
+### EPIC 5: Confidence & Uncertainty ✅ **COMPLETE**
+- [x] Ticket 5.1 - Ensemble Spread Calculator ✅
+  - Created `src/confidence/ensemble.py` (248 lines)
+  - Coefficient of variation (CV) calculation
+  - Timeseries spread analysis
+  - 32 unit tests, 98% coverage
+- [x] Ticket 5.2 - Confidence Classification Service ✅
+  - Created `src/confidence/classifier.py` (241 lines)
+  - Multi-signal confidence classification (high/medium/low)
+  - Transparent decision rules matching PRD
+  - 29 unit tests, 93% coverage
+  - Generates human-readable reasoning
+
+See `docs/development/epic-5-completion-summary.md` for full details
 
 ### EPIC 6: API & Product Integration
 - [ ] Ticket 6.1 - Hydrology Reach API
