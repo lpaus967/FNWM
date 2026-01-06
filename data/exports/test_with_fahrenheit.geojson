@@ -1,0 +1,144 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "generated_at": "2026-01-06T04:17:55.489282Z",
+    "source": "FNWM - Fisheries National Water Model",
+    "view": "map_current_conditions",
+    "feature_count": 2,
+    "filters": null
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -114.073622134,
+            46.82303739
+          ],
+          [
+            -114.070711593,
+            46.823768848
+          ],
+          [
+            -114.063821516,
+            46.825047341
+          ],
+          [
+            -114.060111474,
+            46.826135264
+          ],
+          [
+            -114.056661944,
+            46.826688437
+          ]
+        ]
+      },
+      "properties": {
+        "feature_id": 24319214,
+        "stream_name": "Bitterroot River",
+        "reachcode": "17010205000061",
+        "drainage_area_sqkm": 7225.05,
+        "slope": 0.00137,
+        "stream_order": 6,
+        "gradient_class": "run",
+        "size_class": "river",
+        "valid_time": "2026-01-05T00:00:00+00:00",
+        "streamflow_m3s": 41.64,
+        "velocity_ms": 0.82,
+        "qBtmVertRunoff_m3s": 358.435,
+        "qBucket_m3s": 0.023,
+        "qSfcLatRunoff_m3s": null,
+        "nudge_m3s": null,
+        "bdi": 1.0,
+        "bdi_category": "groundwater_fed",
+        "flow_percentile": 3.3,
+        "flow_percentile_category": "extreme_low",
+        "monthly_mean_m3s": 272.155,
+        "air_temp_c": -0.5,
+        "apparent_temp_c": -3.5,
+        "water_temp_estimate_c": -3.5,
+        "air_temp_f": 31.1,
+        "apparent_temp_f": 25.7,
+        "water_temp_estimate_f": 25.7,
+        "precipitation_mm": 0.0,
+        "cloud_cover_pct": 7,
+        "temp_valid_time": "2026-01-12T23:00:00",
+        "source": "analysis_assim",
+        "forecast_hour": null,
+        "confidence": "high"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -113.783295682,
+            46.796169324
+          ],
+          [
+            -113.783430429,
+            46.796464515
+          ],
+          [
+            -113.784086199,
+            46.796925748
+          ],
+          [
+            -113.784292812,
+            46.79731933
+          ],
+          [
+            -113.784328744,
+            46.797700609
+          ],
+          [
+            -113.784454508,
+            46.79802039
+          ],
+          [
+            -113.784427559,
+            46.798432413
+          ]
+        ]
+      },
+      "properties": {
+        "feature_id": 24293174,
+        "stream_name": "Clark Fork",
+        "reachcode": "17010202001504",
+        "drainage_area_sqkm": 9119.92,
+        "slope": 0.02531,
+        "stream_order": 7,
+        "gradient_class": "riffle",
+        "size_class": "river",
+        "valid_time": "2026-01-05T00:00:00+00:00",
+        "streamflow_m3s": 23.8,
+        "velocity_ms": 1.8,
+        "qBtmVertRunoff_m3s": 5.755,
+        "qBucket_m3s": 0.0,
+        "qSfcLatRunoff_m3s": null,
+        "nudge_m3s": null,
+        "bdi": 1.0,
+        "bdi_category": "groundwater_fed",
+        "flow_percentile": 5.5,
+        "flow_percentile_category": "extreme_low",
+        "monthly_mean_m3s": 82.284,
+        "air_temp_c": -0.2,
+        "apparent_temp_c": -3.3,
+        "water_temp_estimate_c": -3.2,
+        "air_temp_f": 31.6,
+        "apparent_temp_f": 26.1,
+        "water_temp_estimate_f": 26.2,
+        "precipitation_mm": 0.0,
+        "cloud_cover_pct": 10,
+        "temp_valid_time": "2026-01-12T23:00:00",
+        "source": "analysis_assim",
+        "forecast_hour": null,
+        "confidence": "high"
+      }
+    }
+  ]
+}
