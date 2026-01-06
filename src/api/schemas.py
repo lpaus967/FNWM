@@ -28,6 +28,8 @@ class NowResponse(BaseModel):
     velocity_ms: float = Field(..., description="Current velocity (m/s)")
     flow_percentile: Optional[float] = Field(None, description="Flow percentile (0-100)", ge=0, le=100)
     bdi: Optional[float] = Field(None, description="Baseflow Dominance Index (0-1)", ge=0, le=1)
+    air_temperature_f: Optional[float] = Field(None, description="Air temperature (°F)")
+    water_temperature_est_f: Optional[float] = Field(None, description="Estimated water temperature (°F)")
     confidence: str = Field(..., description="Confidence level (high/medium/low)")
     confidence_reasoning: Optional[str] = Field(None, description="Why this confidence level")
     timestamp: datetime = Field(..., description="Valid time (UTC)")

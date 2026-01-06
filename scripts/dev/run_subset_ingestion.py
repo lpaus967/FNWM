@@ -37,6 +37,9 @@ def get_nhd_feature_ids():
 
     Returns:
         set: Set of NHDPlusID values from nhd_flowlines table
+
+    Raises:
+        ValueError: If no NHD feature IDs are found in the database
     """
     logger.info("Querying database for NHD feature IDs...")
 
@@ -51,6 +54,12 @@ def get_nhd_feature_ids():
             """))
 
             feature_ids = {row[0] for row in result}
+
+        if len(feature_ids) == 0:
+            logger.error("❌ No NHD feature IDs found in nhd_flowlines table!")
+            logger.error("   NWM ingestion requires NHD data to be loaded first.")
+            logger.error("   Please run: python scripts/production/load_nhd_data.py <geojson_file>")
+            raise ValueError("No NHD feature IDs found. Cannot proceed with NWM ingestion.")
 
         logger.info(f"✅ Found {len(feature_ids):,} NHD feature IDs in database")
         return feature_ids

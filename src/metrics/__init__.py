@@ -8,6 +8,7 @@ Available metrics:
 - Baseflow Dominance Index - BDI (Ticket 2.2) ✅
 - Velocity Suitability Classifier (Ticket 2.3) ✅
 - Flow Percentile Calculator (Epic 7) ✅
+- Thermal Suitability Index - TSI (Ticket 3.2) ✅
 """
 
 from .rising_limb import (
@@ -49,6 +50,11 @@ from .flow_percentile import (
     PercentileResult
 )
 
+from .thermal_suitability import (
+    ThermalSuitabilityCalculator,
+    compute_thermal_suitability
+)
+
 __all__ = [
     # Rising Limb Detection
     'detect_rising_limb',
@@ -80,5 +86,8 @@ __all__ = [
     'get_monthly_mean_flow',
     'compute_flow_percentile_for_reach',
     'FlowClass',
-    'PercentileResult'
+    'PercentileResult',
+    # Thermal Suitability
+    'ThermalSuitabilityCalculator',
+    'compute_thermal_suitability'
 ]

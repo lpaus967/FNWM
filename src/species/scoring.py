@@ -6,7 +6,7 @@ Computes species-specific habitat suitability scores based on hydrologic conditi
 The scoring engine combines multiple habitat components:
 - Flow suitability (flow percentile relative to optimal range)
 - Velocity suitability (from EPIC 2 velocity classifier)
-- Thermal suitability (from EPIC 3 TSI - currently disabled, see TODO)
+- Thermal suitability (from EPIC 3 TSI - ✅ INTEGRATED)
 - Stability (based on BDI and flow variability)
 
 Design Principles:
@@ -14,9 +14,6 @@ Design Principles:
 - Deterministic and reproducible
 - Explainable (generates human-readable explanations)
 - Auditable (component breakdown provided)
-
-IMPORTANT: Temperature integration pending EPIC 3
-See docs/development/epic-4-thermal-workaround.md for details
 """
 
 from typing import Literal, Optional, Dict, Any
@@ -290,9 +287,8 @@ def compute_species_score(
         config
     )
 
-    # TODO EPIC-3: Replace with actual TSI when temperature data available
-    # thermal_score = hydro_data.get('tsi', 0.0)
-    thermal_score = 0.0  # TEMPORARY: Disabled until EPIC 3 complete
+    # ✅ EPIC-3: TSI integration complete
+    thermal_score = hydro_data.get('tsi', 0.0)  # Use TSI from temperature data
 
     stability_score = score_stability(
         hydro_data.get('bdi', 0.5),

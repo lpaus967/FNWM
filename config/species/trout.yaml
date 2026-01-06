@@ -1,13 +1,11 @@
 name: "Coldwater Trout"
 
-# TODO EPIC-3: Restore thermal_suitability to 0.25 when temperature data is available
-# Original weights: flow=0.30, velocity=0.25, thermal=0.25, stability=0.20
-# Temporary weights (no temperature): redistributed thermal weight across other components
+# Scoring weights - restored with EPIC 3 thermal integration
 scoring_weights:
-  flow_suitability: 0.40      # Increased from 0.30 (absorbed 10% from thermal)
-  velocity_suitability: 0.33  # Increased from 0.25 (absorbed 8% from thermal)
-  thermal_suitability: 0.00   # TEMPORARY: Was 0.25, set to 0 until EPIC 3 complete
-  stability: 0.27             # Increased from 0.20 (absorbed 7% from thermal)
+  flow_suitability: 0.30
+  velocity_suitability: 0.25
+  thermal_suitability: 0.25  # ✅ RESTORED: Thermal component now active
+  stability: 0.20
 
 flow_percentile_optimal:
   min: 40

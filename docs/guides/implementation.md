@@ -292,11 +292,19 @@ Implementation follows the EPICs defined in the PRD, with suggested order and pa
 
 ---
 
-### EPIC 2: Derived Hydrology Metrics Engine
+### EPIC 2: Derived Hydrology Metrics Engine ✅ **COMPLETE**
 
 **Goal**: Translate raw hydrology into interpretable signals.
 
-#### Ticket 2.1 – Rising Limb Detector
+**Status**: All core metrics implemented and operational:
+- ✅ Rising Limb Detector
+- ✅ Baseflow Dominance Index (BDI)
+- ✅ Velocity Suitability Classifier
+- ✅ Flow Percentile Calculator (integrated with NHD historical data)
+
+---
+
+#### Ticket 2.1 – Rising Limb Detector ✅ **COMPLETE**
 
 **Files to Create**:
 - `src/metrics/rising_limb.py`
@@ -1187,9 +1195,24 @@ Implementation follows the EPICs defined in the PRD, with suggested order and pa
 
 ---
 
-### EPIC 8: Spatial Integration & Map-Ready Tables
+### EPIC 8: Spatial Integration & Map-Ready Tables ✅ **FOUNDATION COMPLETE**
 
-**Goal**: Enable efficient joins between FNWM intelligence and USGS NHD v2.1 spatial layer for map visualization.
+**Goal**: Enable efficient joins between FNWM intelligence and USGS NHDPlus v2.1 spatial layer for map visualization.
+
+**Status**: Core spatial integration complete. Map-ready materialized views are a future enhancement.
+
+**Completed Work:**
+- ✅ NHD database schema created (nhd_flowlines, nhd_network_topology, nhd_flow_statistics)
+- ✅ 1,822 NHD reaches loaded with PostGIS spatial geometry
+- ✅ Flow percentile calculator integrated with NHD historical data
+- ✅ 1,588 reaches operational with both NHD and NWM data
+- ✅ Spatial indexes created for efficient querying
+- ✅ Foreign key constraints ensuring data integrity
+
+**Remaining Work** (future EPICs):
+- Materialized views for optimized map rendering
+- Map API endpoints with bounding box filtering
+- Time-slider forecast visualization tables
 
 **Use Case**: User needs to style/color NHD stream reaches on a map based on:
 - Current hydrologic conditions (flow, BDI, velocity)

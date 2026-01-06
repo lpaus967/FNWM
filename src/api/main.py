@@ -45,7 +45,7 @@ from src.api.schemas import (
 from src.species import compute_species_score, load_species_config
 from src.hatches import compute_hatch_likelihood, get_all_hatch_predictions
 from src.confidence import classify_confidence, classify_confidence_with_reasoning
-from src.metrics import compute_bdi, compute_flow_percentile_for_reach, detect_rising_limb
+from src.metrics import compute_bdi, compute_flow_percentile_for_reach, detect_rising_limb, compute_thermal_suitability
 
 # Load environment
 load_dotenv()
@@ -239,11 +239,37 @@ async def get_reach_hydrology(
                         timestamp=data['streamflow']['time']
                     )
 
+                    # Fetch temperature data
+                    air_temp_f = None
+                    water_temp_est_f = None
+                    try:
+                        temp_result = conn.execute(text("""
+                            SELECT temperature_2m
+                            FROM temperature_timeseries
+                            WHERE nhdplusid = :feature_id
+                              AND forecast_hour = 0
+                              AND temperature_2m IS NOT NULL
+                            ORDER BY valid_time DESC
+                            LIMIT 1
+                        """), {'feature_id': feature_id})
+                        temp_row = temp_result.fetchone()
+                        if temp_row:
+                            air_temp_c = temp_row[0]
+                            water_temp_c = air_temp_c - 3.0  # Air-to-water conversion
+                            # Convert to Fahrenheit
+                            air_temp_f = round(air_temp_c * 9/5 + 32, 1)
+                            water_temp_est_f = round(water_temp_c * 9/5 + 32, 1)
+                    except Exception as e:
+                        # Temperature data is optional, don't fail if not available
+                        pass
+
                     response.now = NowResponse(
                         flow_m3s=data['streamflow']['value'],
                         velocity_ms=data['velocity']['value'],
                         flow_percentile=percentile_result.get('percentile'),
                         bdi=bdi,
+                        air_temperature_f=air_temp_f,
+                        water_temperature_est_f=water_temp_est_f,
                         confidence=confidence_obj.confidence,
                         confidence_reasoning=confidence_obj.reasoning,
                         timestamp=data['streamflow']['time'],
@@ -390,10 +416,10 @@ async def get_fisheries_score(
     Get species-specific habitat suitability score.
 
     Combines multiple habitat components:
-    - Flow suitability
-    - Velocity suitability
-    - Stability (BDI-based)
-    - Thermal suitability (when available)
+    - Flow suitability (flow percentile vs optimal range)
+    - Velocity suitability (species-specific velocity ranges)
+    - Thermal suitability (TSI from Open-Meteo temperature data) ✅
+    - Stability (BDI-based baseflow dominance)
 
     Returns explainable score with component breakdown and confidence.
     """
@@ -437,12 +463,23 @@ async def get_fisheries_score(
                 timestamp=timestamp
             )
 
+            # Compute thermal suitability (TSI)
+            species_config = load_species_config(species)
+            tsi_result = compute_thermal_suitability(
+                engine=engine,
+                nhdplusid=feature_id,
+                species_config=species_config,
+                timeframe=timeframe
+            )
+            tsi_score = tsi_result.get('score', 0.0) if tsi_result.get('score') is not None else 0.0
+
             # Prepare hydro_data for species scoring
             hydro_data = {
                 'flow_percentile': percentile_result.get('percentile', 50.0),
                 'velocity': data.get('velocity', 0.0),
                 'bdi': bdi,
                 'flow_variability': None,
+                'tsi': tsi_score,  # ✅ EPIC-3: Include thermal suitability
             }
 
             # Classify confidence

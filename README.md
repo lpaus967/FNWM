@@ -81,19 +81,25 @@ No downstream service should reason about filenames or `f###` values directly.
 
 Raw NWM variables are never exposed. All intelligence is derived.
 
-Examples include:
+**Implemented Metrics:**
 
-- **Rising Limb Detection** – sustained positive flow derivatives
-- **Flow Percentile vs Baseline** – normalizes rivers of different sizes
-- **Velocity Suitability** – species-specific energetic windows
-- **Baseflow Dominance Index (BDI)** – groundwater vs stormflow signal
-- **Thermal Suitability Index (TSI)** – temperature + hydrology proxy
+- **Rising Limb Detection** ✅ – Sustained positive flow derivatives with intensity classification
+- **Flow Percentile Calculator** ✅ – Compares current flow to NHDPlus historical monthly means
+  - 7 ecological categories (extreme_low through extreme_high)
+  - Integrated with 1,588 operational reaches
+  - Real-time percentile scoring in all API endpoints
+- **Baseflow Dominance Index (BDI)** ✅ – Quantifies groundwater vs stormflow signal (0-1 scale)
+- **Velocity Suitability** ✅ – Species-specific energetic windows with gradient scoring
+- **Thermal Suitability Index (TSI)** ✅ – Air-to-water temperature conversion with species-specific thermal scoring
+  - Integrated with Open-Meteo weather API
+  - Hourly temperature forecasts (current + 16-day outlook)
+  - Gradient scoring across optimal, stress, and critical thermal zones
 
 All metrics are:
-- Deterministic
-- Unit-testable
-- Configurable
-- Explainable
+- ✅ Deterministic
+- ✅ Unit-testable
+- ✅ Config-driven
+- ✅ Explainable with reasoning
 
 ---
 
@@ -140,23 +146,48 @@ This feedback loop is mandatory for all new features.
 
 ---
 
-## 🏗️ Repository Structure (Conceptual)
+## 🏗️ Repository Structure
 
 ```text
-/
-├── ingest/            # NWM ingestion & scheduling
-├── normalize/         # Time & schema normalization
-├── metrics/           # Derived hydrology metrics
-├── species/           # Species scoring logic
-├── hatches/           # Hatch-specific rules
-├── temperature/       # Thermal ingestion & TSI
-├── confidence/        # Uncertainty & confidence scoring
-├── api/               # Internal service interfaces
-├── config/            # Species & hatch thresholds (YAML/JSON)
-└── validation/        # Model performance & feedback loop
+src/
+├── ingest/            # NWM ingestion & scheduling ✅
+├── normalize/         # Time & schema normalization ✅
+├── metrics/           # Derived hydrology metrics ✅
+│   ├── rising_limb.py
+│   ├── baseflow.py
+│   ├── velocity.py
+│   └── flow_percentile.py  # NEW: NHD-integrated percentiles
+├── species/           # Species scoring logic ✅
+├── hatches/           # Hatch-specific rules ✅
+├── temperature/       # Thermal ingestion & TSI (planned)
+├── confidence/        # Uncertainty & confidence scoring ✅
+├── api/               # FastAPI endpoints ✅
+└── validation/        # Model performance & feedback loop (planned)
+
+scripts/
+├── setup/             # Database initialization
+│   ├── init_nhd_schema.py     # NHD spatial tables
+│   └── create_nhd_tables.sql
+├── production/        # Production data loading
+│   ├── run_full_ingestion.py
+│   └── load_nhd_data.py       # Load NHDPlus GeoJSON
+├── dev/               # Development tools
+│   └── run_subset_ingestion.py
+└── tests/             # Test scripts
+    ├── test_flow_percentile.py
+    └── ...
+
+config/
+├── species/           # Species thresholds (YAML)
+├── hatches/           # Hatch signatures (YAML)
+└── thresholds/        # Metric thresholds (YAML)
 ```
 
-Exact structure may evolve, but separation of concerns is enforced.
+**Database Integration:**
+- PostgreSQL with PostGIS for spatial data
+- TimescaleDB for time-series hydrologic data
+- 1,822 NHDPlus reaches with spatial geometry
+- 1,588 reaches operational with NWM-NHD integration
 
 ---
 

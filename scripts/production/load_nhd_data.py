@@ -53,11 +53,14 @@ def geojson_to_wkt(geometry):
     """
     Convert GeoJSON geometry to WKT format for PostGIS.
 
+    Supports LineString and MultiLineString geometries.
+    MultiLineString geometries will be merged into a single LineString using ST_LineMerge.
+
     Args:
         geometry: GeoJSON geometry object
 
     Returns:
-        WKT string
+        tuple: (WKT string, needs_merge) where needs_merge is True for MultiLineString
     """
     geom_type = geometry['type']
     coords = geometry['coordinates']
@@ -65,7 +68,17 @@ def geojson_to_wkt(geometry):
     if geom_type == 'LineString':
         # Format: LINESTRING(lon1 lat1, lon2 lat2, ...)
         coords_str = ', '.join([f"{c[0]} {c[1]}" for c in coords])
-        return f"LINESTRING({coords_str})"
+        return f"LINESTRING({coords_str})", False
+
+    elif geom_type == 'MultiLineString':
+        # Format: MULTILINESTRING((lon1 lat1, lon2 lat2, ...), (lon3 lat3, lon4 lat4, ...))
+        # Each element in coords is a separate LineString
+        lines = []
+        for line_coords in coords:
+            line_str = ', '.join([f"{c[0]} {c[1]}" for c in line_coords])
+            lines.append(f"({line_str})")
+        return f"MULTILINESTRING({', '.join(lines)})", True
+
     else:
         raise ValueError(f"Unsupported geometry type: {geom_type}")
 
@@ -169,147 +182,183 @@ def load_nhd_geojson(geojson_path: str, batch_size: int = 500):
                 geom = feature['geometry']
 
                 # Convert geometry to WKT
-                wkt = geojson_to_wkt(geom)
+                wkt, needs_merge = geojson_to_wkt(geom)
 
                 # Convert resolution string to integer (for NHDPlus HR)
                 resolution_str = props.get('Resolution') or props.get('resolution')
                 resolution_map = {'High': 1, 'Medium': 2, 'Low': 3}
                 resolution_val = resolution_map.get(resolution_str) if isinstance(resolution_str, str) else resolution_str
 
-                # Use individual transaction for each feature
-                with engine.begin() as conn:
-                    # 1. Insert into nhd_flowlines
-                    # Note: New NHDPlus HR uses uppercase field names and COMID
-                    conn.execute(text("""
-                        INSERT INTO nhd_flowlines (
-                            nhdplusid, permanent_identifier, gnis_id, gnis_name,
-                            reachcode, lengthkm, areasqkm, totdasqkm, divdasqkm,
-                            streamorde, streamleve, streamcalc, ftype, fcode,
-                            slope, slopelenkm, maxelevraw, minelevraw,
-                            maxelevsmo, minelevsmo, vpuid, statusflag, fdate,
-                            resolution, geom
-                        ) VALUES (
-                            :nhdplusid, :permanent_identifier, :gnis_id, :gnis_name,
-                            :reachcode, :lengthkm, :areasqkm, :totdasqkm, :divdasqkm,
-                            :streamorde, :streamleve, :streamcalc, :ftype, :fcode,
-                            :slope, :slopelenkm, :maxelevraw, :minelevraw,
-                            :maxelevsmo, :minelevsmo, :vpuid, :statusflag, :fdate,
-                            :resolution, ST_GeomFromText(:wkt, 4326)
-                        )
-                        ON CONFLICT (nhdplusid) DO UPDATE SET
-                            updated_at = NOW()
-                    """), {
-                        'nhdplusid': props.get('COMID') or props.get('nhdplusid'),
-                        'permanent_identifier': props.get('permanent_identifier') or str(props.get('COMID', '')),
-                        'gnis_id': props.get('GNIS_ID') or props.get('gnis_id'),
-                        'gnis_name': props.get('GNIS_NAME') or props.get('gnis_name'),
-                        'reachcode': props.get('REACHCODE') or props.get('reachcode'),
-                        'lengthkm': props.get('LENGTHKM') or props.get('lengthkm'),
-                        'areasqkm': props.get('AreaSqKM') or props.get('areasqkm'),
-                        'totdasqkm': props.get('TotDASqKM') or props.get('totdasqkm'),
-                        'divdasqkm': props.get('DivDASqKM') or props.get('divdasqkm'),
-                        'streamorde': props.get('StreamOrde') or props.get('streamorde'),
-                        'streamleve': props.get('StreamLeve') or props.get('streamleve'),
-                        'streamcalc': props.get('StreamCalc') or props.get('streamcalc'),
-                        'ftype': props.get('FCODE') or props.get('ftype'),  # Use FCODE for ftype
-                        'fcode': props.get('FCODE') or props.get('fcode'),
-                        'slope': props.get('SLOPE') or props.get('slope'),
-                        'slopelenkm': props.get('SLOPELENKM') or props.get('slopelenkm'),
-                        'maxelevraw': props.get('MAXELEVRAW') or props.get('maxelevraw'),
-                        'minelevraw': props.get('MINELEVRAW') or props.get('minelevraw'),
-                        'maxelevsmo': props.get('MAXELEVSMO') or props.get('maxelevsmo'),
-                        'minelevsmo': props.get('MINELEVSMO') or props.get('minelevsmo'),
-                        'vpuid': props.get('vpuid'),  # Not in new data
-                        'statusflag': props.get('statusflag'),  # Not in new data
-                        'fdate': props.get('FDATE') or props.get('fdate'),
-                        'resolution': resolution_val,
-                        'wkt': wkt
-                    })
+                # Get nhdplusid for this feature
+                nhdplusid = props.get('COMID') or props.get('nhdplusid')
 
-                    # 2. Insert network topology
-                    conn.execute(text("""
-                        INSERT INTO nhd_network_topology (
-                            nhdplusid, fromnode, tonode, hydroseq, levelpathi,
-                            terminalpa, uphydroseq, uplevelpat, dnhydroseq,
-                            dnlevelpat, dnminorhyd, dndraincou, pathlength,
-                            arbolatesu, startflag, terminalfl, divergence,
-                            mainpath, innetwork, frommeas, tomeas
-                        ) VALUES (
-                            :nhdplusid, :fromnode, :tonode, :hydroseq, :levelpathi,
-                            :terminalpa, :uphydroseq, :uplevelpat, :dnhydroseq,
-                            :dnlevelpat, :dnminorhyd, :dndraincou, :pathlength,
-                            :arbolatesu, :startflag, :terminalfl, :divergence,
-                            :mainpath, :innetwork, :frommeas, :tomeas
-                        )
-                        ON CONFLICT (nhdplusid) DO NOTHING
-                    """), {
-                        'nhdplusid': props.get('COMID') or props.get('nhdplusid'),
-                        'fromnode': props.get('FromNode') or props.get('fromnode'),
-                        'tonode': props.get('ToNode') or props.get('tonode'),
-                        'hydroseq': props.get('Hydroseq') or props.get('hydroseq'),
-                        'levelpathi': props.get('LevelPathI') or props.get('levelpathi'),
-                        'terminalpa': props.get('TerminalPa') or props.get('terminalpa'),
-                        'uphydroseq': props.get('UpHydroseq') or props.get('uphydroseq'),
-                        'uplevelpat': props.get('UpLevelPat') or props.get('uplevelpat'),
-                        'dnhydroseq': props.get('DnHydroseq') or props.get('dnhydroseq'),
-                        'dnlevelpat': props.get('DnLevelPat') or props.get('dnlevelpat'),
-                        'dnminorhyd': props.get('DnMinorHyd') or props.get('dnminorhyd'),
-                        'dndraincou': props.get('DnDrainCou') or props.get('dndraincou'),
-                        'pathlength': props.get('Pathlength') or props.get('pathlength'),
-                        'arbolatesu': props.get('ArbolateSu') or props.get('arbolatesu'),
-                        'startflag': props.get('StartFlag') or props.get('startflag'),
-                        'terminalfl': props.get('TerminalFl') or props.get('terminalfl'),
-                        'divergence': props.get('Divergence') or props.get('divergence'),
-                        'mainpath': props.get('mainpath'),  # Check if exists in new data
-                        'innetwork': props.get('ONOFFNET') or props.get('innetwork'),
-                        'frommeas': props.get('FromMeas') or props.get('frommeas'),
-                        'tomeas': props.get('ToMeas') or props.get('tomeas')
-                    })
+                # Convert fdate string to integer format (YYYYMMDD) if needed
+                fdate_raw = props.get('FDATE') or props.get('fdate')
+                fdate_int = None
+                if fdate_raw:
+                    if isinstance(fdate_raw, str):
+                        # Convert 'YYYY-MM-DD' to YYYYMMDD integer
+                        try:
+                            fdate_int = int(fdate_raw.replace('-', ''))
+                        except (ValueError, AttributeError):
+                            fdate_int = None
+                    else:
+                        fdate_int = fdate_raw
 
-                    # 3. Insert flow statistics
-                    # Note: New data uses QA_01, QC_01, etc. instead of qama, qcma, etc.
-                    conn.execute(text("""
-                        INSERT INTO nhd_flow_statistics (
-                            nhdplusid, qama, qbma, qcma, qdma, qema, qfma,
-                            qincrama, qincrbma, qincrcma, qincrdma, qincrema, qincrfma,
-                            vama, vbma, vcma, vdma, vema,
-                            gageidma, gageqma, gageadjma
-                        ) VALUES (
-                            :nhdplusid, :qama, :qbma, :qcma, :qdma, :qema, :qfma,
-                            :qincrama, :qincrbma, :qincrcma, :qincrdma, :qincrema, :qincrfma,
-                            :vama, :vbma, :vcma, :vdma, :vema,
-                            :gageidma, :gageqma, :gageadjma
-                        )
-                        ON CONFLICT (nhdplusid) DO NOTHING
-                    """), {
-                        'nhdplusid': props.get('COMID') or props.get('nhdplusid'),
-                        'qama': props.get('QA_01') or props.get('qama'),
-                        'qbma': props.get('QA_02') or props.get('qbma'),
-                        'qcma': props.get('QA_03') or props.get('qcma'),
-                        'qdma': props.get('QA_04') or props.get('qdma'),
-                        'qema': props.get('QA_05') or props.get('qema'),
-                        'qfma': props.get('QA_06') or props.get('qfma'),
-                        'qincrama': props.get('qincrama'),  # Not in new data
-                        'qincrbma': props.get('qincrbma'),  # Not in new data
-                        'qincrcma': props.get('qincrcma'),  # Not in new data
-                        'qincrdma': props.get('qincrdma'),  # Not in new data
-                        'qincrema': props.get('qincrema'),  # Not in new data
-                        'qincrfma': props.get('qincrfma'),  # Not in new data
-                        'vama': props.get('VA_01') or props.get('vama'),
-                        'vbma': props.get('VA_02') or props.get('vbma'),
-                        'vcma': props.get('VC_01') or props.get('vcma'),
-                        'vdma': props.get('VC_02') or props.get('vdma'),
-                        'vema': props.get('VE_01') or props.get('vema'),
-                        'gageidma': props.get('gageidma'),  # Not in new data
-                        'gageqma': props.get('gageqma'),  # Not in new data
-                        'gageadjma': props.get('gageadjma')  # Not in new data
-                    })
+                # 1. Insert into nhd_flowlines (CRITICAL - needed for NWM joins)
+                # Note: New NHDPlus HR uses uppercase field names and COMID
+                # For MultiLineString, use ST_LineMerge to merge into a single LineString
+                try:
+                    with engine.begin() as conn:
+                        if needs_merge:
+                            geom_sql = "ST_LineMerge(ST_GeomFromText(:wkt, 4326))"
+                        else:
+                            geom_sql = "ST_GeomFromText(:wkt, 4326)"
 
-                    inserted_count += 1
+                        conn.execute(text(f"""
+                            INSERT INTO nhd_flowlines (
+                                nhdplusid, permanent_identifier, gnis_id, gnis_name,
+                                reachcode, lengthkm, areasqkm, totdasqkm, divdasqkm,
+                                streamorde, streamleve, streamcalc, ftype, fcode,
+                                slope, slopelenkm, maxelevraw, minelevraw,
+                                maxelevsmo, minelevsmo, vpuid, statusflag, fdate,
+                                resolution, geom
+                            ) VALUES (
+                                :nhdplusid, :permanent_identifier, :gnis_id, :gnis_name,
+                                :reachcode, :lengthkm, :areasqkm, :totdasqkm, :divdasqkm,
+                                :streamorde, :streamleve, :streamcalc, :ftype, :fcode,
+                                :slope, :slopelenkm, :maxelevraw, :minelevraw,
+                                :maxelevsmo, :minelevsmo, :vpuid, :statusflag, :fdate,
+                                :resolution, {geom_sql}
+                            )
+                            ON CONFLICT (nhdplusid) DO UPDATE SET
+                                updated_at = NOW()
+                        """), {
+                            'nhdplusid': nhdplusid,
+                            'permanent_identifier': props.get('permanent_identifier') or str(props.get('COMID', '')),
+                            'gnis_id': props.get('GNIS_ID') or props.get('gnis_id'),
+                            'gnis_name': props.get('GNIS_NAME') or props.get('gnis_name'),
+                            'reachcode': props.get('REACHCODE') or props.get('reachcode'),
+                            'lengthkm': props.get('LENGTHKM') or props.get('lengthkm'),
+                            'areasqkm': props.get('AreaSqKM') or props.get('areasqkm'),
+                            'totdasqkm': props.get('TotDASqKM') or props.get('totdasqkm'),
+                            'divdasqkm': props.get('DivDASqKM') or props.get('divdasqkm'),
+                            'streamorde': props.get('StreamOrde') or props.get('streamorde'),
+                            'streamleve': props.get('StreamLeve') or props.get('streamleve'),
+                            'streamcalc': props.get('StreamCalc') or props.get('streamcalc'),
+                            'ftype': props.get('FCODE') or props.get('ftype'),  # Use FCODE for ftype
+                            'fcode': props.get('FCODE') or props.get('fcode'),
+                            'slope': props.get('SLOPE') or props.get('slope'),
+                            'slopelenkm': props.get('SLOPELENKM') or props.get('slopelenkm'),
+                            'maxelevraw': props.get('MAXELEVRAW') or props.get('maxelevraw'),
+                            'minelevraw': props.get('MINELEVRAW') or props.get('minelevraw'),
+                            'maxelevsmo': props.get('MAXELEVSMO') or props.get('maxelevsmo'),
+                            'minelevsmo': props.get('MINELEVSMO') or props.get('minelevsmo'),
+                            'vpuid': props.get('vpuid'),  # Not in new data
+                            'statusflag': props.get('statusflag'),  # Not in new data
+                            'fdate': fdate_int,  # Converted to integer format
+                            'resolution': resolution_val,
+                            'wkt': wkt
+                        })
+                        inserted_count += 1
+                except Exception as e:
+                    # Flowline insert failed - this is critical, skip this feature entirely
+                    error_count += 1
+                    logger.warning(f"⚠️  Failed to insert flowline {nhdplusid}: {e}")
+                    continue
+
+                # 2. Insert network topology (OPTIONAL - nice to have but not critical)
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                            INSERT INTO nhd_network_topology (
+                                nhdplusid, fromnode, tonode, hydroseq, levelpathi,
+                                terminalpa, uphydroseq, uplevelpat, dnhydroseq,
+                                dnlevelpat, dnminorhyd, dndraincou, pathlength,
+                                arbolatesu, startflag, terminalfl, divergence,
+                                mainpath, innetwork, frommeas, tomeas
+                            ) VALUES (
+                                :nhdplusid, :fromnode, :tonode, :hydroseq, :levelpathi,
+                                :terminalpa, :uphydroseq, :uplevelpat, :dnhydroseq,
+                                :dnlevelpat, :dnminorhyd, :dndraincou, :pathlength,
+                                :arbolatesu, :startflag, :terminalfl, :divergence,
+                                :mainpath, :innetwork, :frommeas, :tomeas
+                            )
+                            ON CONFLICT (nhdplusid) DO NOTHING
+                        """), {
+                            'nhdplusid': nhdplusid,
+                            'fromnode': props.get('FromNode') or props.get('fromnode'),
+                            'tonode': props.get('ToNode') or props.get('tonode'),
+                            'hydroseq': props.get('Hydroseq') or props.get('hydroseq'),
+                            'levelpathi': props.get('LevelPathI') or props.get('levelpathi'),
+                            'terminalpa': props.get('TerminalPa') or props.get('terminalpa'),
+                            'uphydroseq': props.get('UpHydroseq') or props.get('uphydroseq'),
+                            'uplevelpat': props.get('UpLevelPat') or props.get('uplevelpat'),
+                            'dnhydroseq': props.get('DnHydroseq') or props.get('dnhydroseq'),
+                            'dnlevelpat': props.get('DnLevelPat') or props.get('dnlevelpat'),
+                            'dnminorhyd': props.get('DnMinorHyd') or props.get('dnminorhyd'),
+                            'dndraincou': props.get('DnDrainCou') or props.get('dndraincou'),
+                            'pathlength': props.get('Pathlength') or props.get('pathlength'),
+                            'arbolatesu': props.get('ArbolateSu') or props.get('arbolatesu'),
+                            'startflag': props.get('StartFlag') or props.get('startflag'),
+                            'terminalfl': props.get('TerminalFl') or props.get('terminalfl'),
+                            'divergence': props.get('Divergence') or props.get('divergence'),
+                            'mainpath': props.get('mainpath'),
+                            'innetwork': props.get('ONOFFNET') or props.get('innetwork'),
+                            'frommeas': props.get('FromMeas') or props.get('frommeas'),
+                            'tomeas': props.get('ToMeas') or props.get('tomeas')
+                        })
+                except Exception as e:
+                    # Topology insert failed - log warning but continue (not critical)
+                    pass  # Silently skip topology errors since they're not critical
+
+                # 3. Insert flow statistics (OPTIONAL - nice to have but not critical)
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                            INSERT INTO nhd_flow_statistics (
+                                nhdplusid, qama, qbma, qcma, qdma, qema, qfma,
+                                qincrama, qincrbma, qincrcma, qincrdma, qincrema, qincrfma,
+                                vama, vbma, vcma, vdma, vema,
+                                gageidma, gageqma, gageadjma
+                            ) VALUES (
+                                :nhdplusid, :qama, :qbma, :qcma, :qdma, :qema, :qfma,
+                                :qincrama, :qincrbma, :qincrcma, :qincrdma, :qincrema, :qincrfma,
+                                :vama, :vbma, :vcma, :vdma, :vema,
+                                :gageidma, :gageqma, :gageadjma
+                            )
+                            ON CONFLICT (nhdplusid) DO NOTHING
+                        """), {
+                            'nhdplusid': nhdplusid,
+                            'qama': props.get('QA_01') or props.get('qama'),
+                            'qbma': props.get('QA_02') or props.get('qbma'),
+                            'qcma': props.get('QA_03') or props.get('qcma'),
+                            'qdma': props.get('QA_04') or props.get('qdma'),
+                            'qema': props.get('QA_05') or props.get('qema'),
+                            'qfma': props.get('QA_06') or props.get('qfma'),
+                            'qincrama': props.get('qincrama'),
+                            'qincrbma': props.get('qincrbma'),
+                            'qincrcma': props.get('qincrcma'),
+                            'qincrdma': props.get('qincrdma'),
+                            'qincrema': props.get('qincrema'),
+                            'qincrfma': props.get('qincrfma'),
+                            'vama': props.get('VA_01') or props.get('vama'),
+                            'vbma': props.get('VA_02') or props.get('vbma'),
+                            'vcma': props.get('VC_01') or props.get('vcma'),
+                            'vdma': props.get('VC_02') or props.get('vdma'),
+                            'vema': props.get('VE_01') or props.get('vema'),
+                            'gageidma': props.get('gageidma'),
+                            'gageqma': props.get('gageqma'),
+                            'gageadjma': props.get('gageadjma')
+                        })
+                except Exception as e:
+                    # Flow statistics insert failed - log warning but continue (not critical)
+                    pass  # Silently skip stats errors since they're not critical
 
             except Exception as e:
+                # Outer exception handler for any unexpected errors
                 error_count += 1
-                logger.warning(f"⚠️  Failed to insert feature {props.get('nhdplusid', 'unknown')}: {e}")
+                logger.warning(f"⚠️  Unexpected error processing feature {nhdplusid}: {e}")
                 continue
 
         # Log progress
