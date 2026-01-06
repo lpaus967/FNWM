@@ -45,7 +45,7 @@ from src.api.schemas import (
 from src.species import compute_species_score, load_species_config
 from src.hatches import compute_hatch_likelihood, get_all_hatch_predictions
 from src.confidence import classify_confidence, classify_confidence_with_reasoning
-from src.metrics import compute_bdi
+from src.metrics import compute_bdi, compute_flow_percentile_for_reach, detect_rising_limb
 
 # Load environment
 load_dotenv()
@@ -232,15 +232,135 @@ async def get_reach_hydrology(
                     # Classify confidence
                     confidence_obj = classify_confidence_with_reasoning(source='analysis_assim')
 
+                    # Compute flow percentile
+                    percentile_result = compute_flow_percentile_for_reach(
+                        feature_id=feature_id,
+                        current_flow=data['streamflow']['value'],
+                        timestamp=data['streamflow']['time']
+                    )
+
                     response.now = NowResponse(
                         flow_m3s=data['streamflow']['value'],
                         velocity_ms=data['velocity']['value'],
-                        flow_percentile=None,  # Would need historical data
+                        flow_percentile=percentile_result.get('percentile'),
                         bdi=bdi,
                         confidence=confidence_obj.confidence,
                         confidence_reasoning=confidence_obj.reasoning,
                         timestamp=data['streamflow']['time'],
                         source=data['streamflow']['source']
+                    )
+
+            # Fetch "today" data (short_range f001-f018)
+            if timeframe in ["today", "all"]:
+                result = conn.execute(text("""
+                    SELECT forecast_hour, valid_time, variable, value
+                    FROM hydro_timeseries
+                    WHERE feature_id = :feature_id
+                      AND source = 'short_range'
+                      AND variable IN ('streamflow', 'velocity')
+                      AND forecast_hour BETWEEN 1 AND 18
+                    ORDER BY forecast_hour, variable
+                """), {'feature_id': feature_id})
+
+                # Organize data by forecast hour
+                forecast_data = {}
+                for row in result:
+                    fh, vt, var, val = row
+                    if fh not in forecast_data:
+                        forecast_data[fh] = {'valid_time': vt}
+                    forecast_data[fh][var] = val
+
+                if forecast_data:
+                    # Detect rising limb from streamflow timeseries
+                    flows = [(forecast_data[fh]['valid_time'], forecast_data[fh].get('streamflow', 0.0))
+                             for fh in sorted(forecast_data.keys()) if 'streamflow' in forecast_data[fh]]
+
+                    rising_limb_result = None
+                    if len(flows) >= 3:
+                        try:
+                            rising_limb_result = detect_rising_limb(flows)
+                        except:
+                            pass  # Rising limb detection optional
+
+                    # Classify confidence for short_range
+                    sr_confidence = classify_confidence_with_reasoning(source='short_range')
+
+                    # Build TodayForecast list
+                    today_forecasts = []
+                    for fh in sorted(forecast_data.keys()):
+                        if 'streamflow' in forecast_data[fh] and 'velocity' in forecast_data[fh]:
+                            # Check if this hour is part of rising limb
+                            is_rising = False
+                            intensity = None
+                            if rising_limb_result and rising_limb_result.get('detected'):
+                                is_rising = True
+                                intensity = rising_limb_result.get('intensity', 'moderate')
+
+                            today_forecasts.append(TodayForecast(
+                                hour=fh,
+                                valid_time=forecast_data[fh]['valid_time'],
+                                flow_m3s=forecast_data[fh]['streamflow'],
+                                velocity_ms=forecast_data[fh]['velocity'],
+                                rising_limb_detected=is_rising,
+                                rising_limb_intensity=intensity,
+                                confidence=sr_confidence.confidence
+                            ))
+
+                    response.today = today_forecasts if today_forecasts else None
+
+            # Fetch "outlook" data (medium_range_blend)
+            if timeframe in ["outlook", "all"]:
+                result = conn.execute(text("""
+                    SELECT value
+                    FROM hydro_timeseries
+                    WHERE feature_id = :feature_id
+                      AND source = 'medium_range_blend'
+                      AND variable = 'streamflow'
+                    ORDER BY forecast_hour
+                """), {'feature_id': feature_id})
+
+                flows = [row[0] for row in result]
+
+                if flows and len(flows) >= 3:
+                    import numpy as np
+
+                    mean_flow = float(np.mean(flows))
+                    min_flow = float(np.min(flows))
+                    max_flow = float(np.max(flows))
+
+                    # Determine trend (simple: compare first third vs last third)
+                    first_third = flows[:len(flows)//3]
+                    last_third = flows[-len(flows)//3:]
+
+                    trend = "stable"
+                    if np.mean(last_third) > np.mean(first_third) * 1.1:
+                        trend = "rising"
+                    elif np.mean(last_third) < np.mean(first_third) * 0.9:
+                        trend = "falling"
+
+                    # Ensemble spread (coefficient of variation)
+                    cv = float(np.std(flows) / np.mean(flows)) if np.mean(flows) > 0 else 0.0
+
+                    # Classify confidence
+                    mr_confidence = classify_confidence_with_reasoning(source='medium_range_blend')
+
+                    # Generate interpretation
+                    interpretation = f"10-day outlook shows {trend} trend. "
+                    if trend == "rising":
+                        interpretation += f"Flow expected to increase from {min_flow:.2f} to {max_flow:.2f} m³/s."
+                    elif trend == "falling":
+                        interpretation += f"Flow expected to decrease from {max_flow:.2f} to {min_flow:.2f} m³/s."
+                    else:
+                        interpretation += f"Flow expected to remain stable around {mean_flow:.2f} m³/s."
+
+                    response.outlook = OutlookResponse(
+                        trend=trend,
+                        confidence=mr_confidence.confidence,
+                        mean_flow_m3s=mean_flow,
+                        min_flow_m3s=min_flow,
+                        max_flow_m3s=max_flow,
+                        ensemble_spread=cv,
+                        interpretation=interpretation
                     )
 
         return response
@@ -285,7 +405,7 @@ async def get_fisheries_score(
             source_filter = 'analysis_assim' if timeframe == 'now' else 'short_range'
 
             result = conn.execute(text("""
-                SELECT variable, value
+                SELECT variable, value, valid_time
                 FROM hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND source = :source
@@ -294,7 +414,9 @@ async def get_fisheries_score(
                 LIMIT 5
             """), {'feature_id': feature_id, 'source': source_filter})
 
-            data = {row[0]: row[1] for row in result}
+            rows = result.fetchall()
+            data = {row[0]: row[1] for row in rows}
+            timestamp = rows[0][2] if rows else datetime.now()  # Get timestamp from first row
 
             if not data or 'velocity' not in data:
                 raise HTTPException(status_code=404, detail=f"No data found for reach {feature_id}")
@@ -308,9 +430,16 @@ async def get_fisheries_score(
                     data['qSfcLatRunoff']
                 )
 
+            # Compute flow percentile
+            percentile_result = compute_flow_percentile_for_reach(
+                feature_id=feature_id,
+                current_flow=data.get('streamflow', 0.0),
+                timestamp=timestamp
+            )
+
             # Prepare hydro_data for species scoring
             hydro_data = {
-                'flow_percentile': 50,  # Simplified - would compute from historical
+                'flow_percentile': percentile_result.get('percentile', 50.0),
                 'velocity': data.get('velocity', 0.0),
                 'bdi': bdi,
                 'flow_variability': None,
@@ -375,7 +504,7 @@ async def get_hatch_forecast(
         with engine.begin() as conn:
             # Fetch current hydrologic data
             result = conn.execute(text("""
-                SELECT variable, value
+                SELECT variable, value, valid_time
                 FROM hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND source = 'analysis_assim'
@@ -384,7 +513,9 @@ async def get_hatch_forecast(
                 LIMIT 5
             """), {'feature_id': feature_id})
 
-            data = {row[0]: row[1] for row in result}
+            rows = result.fetchall()
+            data = {row[0]: row[1] for row in rows}
+            timestamp = rows[0][2] if rows else datetime.now()  # Get timestamp from first row
 
             if not data:
                 raise HTTPException(status_code=404, detail=f"No data found for reach {feature_id}")
@@ -398,9 +529,16 @@ async def get_hatch_forecast(
                     data['qSfcLatRunoff']
                 )
 
+            # Compute flow percentile
+            percentile_result = compute_flow_percentile_for_reach(
+                feature_id=feature_id,
+                current_flow=data.get('streamflow', 0.0),
+                timestamp=timestamp
+            )
+
             # Prepare hydro_data for hatch prediction
             hydro_data = {
-                'flow_percentile': 50,  # Simplified
+                'flow_percentile': percentile_result.get('percentile', 50.0),
                 'rising_limb': False,  # Would detect from timeseries
                 'velocity': data.get('velocity', 0.0),
                 'bdi': bdi,

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Add src to path
-src_path = Path(__file__).parent.parent / 'src'
+src_path = Path(__file__).parent.parent.parent / 'src'
 sys.path.insert(0, str(src_path))
 
 from dotenv import load_dotenv
@@ -131,7 +131,7 @@ def run_full_ingestion_for_date(target_date: datetime):
 
 if __name__ == "__main__":
     # January 3, 2026 - Use 00Z for complete workflow
-    target_date = datetime(2026, 1, 3, 0, 0, 0, tzinfo=timezone.utc)
+    target_date = datetime(2026, 1, 5, 0, 0, 0, tzinfo=timezone.utc)
 
     logger.info("\nFull Ingestion Parameters:")
     logger.info(f"  Target Date: {target_date.strftime('%Y-%m-%d %HZ')}")

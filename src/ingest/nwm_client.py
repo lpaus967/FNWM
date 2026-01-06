@@ -227,15 +227,20 @@ class NWMClient:
         try:
             ds = xr.open_dataset(filepath)
 
-            # Extract core variables
+            # Extract core variables (always present)
             data = {
                 'feature_id': ds['feature_id'].values,
                 'streamflow_m3s': ds['streamflow'].values,
                 'velocity_ms': ds['velocity'].values,
-                'qSfcLatRunoff_m3s': ds['qSfcLatRunoff'].values,
-                'qBucket_m3s': ds['qBucket'].values,
-                'qBtmVertRunoff_m3s': ds['qBtmVertRunoff'].values,
             }
+
+            # Add optional flow component variables (if available)
+            if 'qSfcLatRunoff' in ds:
+                data['qSfcLatRunoff_m3s'] = ds['qSfcLatRunoff'].values
+            if 'qBucket' in ds:
+                data['qBucket_m3s'] = ds['qBucket'].values
+            if 'qBtmVertRunoff' in ds:
+                data['qBtmVertRunoff_m3s'] = ds['qBtmVertRunoff'].values
 
             # Add nudge if available (only in analysis_assim)
             if 'nudge' in ds:

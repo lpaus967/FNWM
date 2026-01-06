@@ -1,8 +1,8 @@
 """
-Run Full NWM Ingestion Workflow - SUBSET VERSION
+Run Full NWM Ingestion Workflow - SUBSET VERSION (NHD-FILTERED)
 
-Tests the complete workflow with a subset of reaches (100,000 by default).
-Use this to verify everything works before running the full 2.7M reach ingestion.
+Tests the complete workflow using only the NHD feature IDs loaded in the database.
+This ensures we only ingest NWM data for reaches that have corresponding NHD spatial data.
 """
 
 import logging
@@ -30,8 +30,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# SUBSET SIZE (change this to test with different amounts)
-SUBSET_SIZE = 100_000  # Test with 100K reaches instead of 2.7M
+
+def get_nhd_feature_ids():
+    """
+    Query database to get all NHD feature IDs (nhdplusid values).
+
+    Returns:
+        set: Set of NHDPlusID values from nhd_flowlines table
+    """
+    logger.info("Querying database for NHD feature IDs...")
+
+    try:
+        engine = create_engine(os.getenv('DATABASE_URL'))
+
+        with engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT nhdplusid
+                FROM nhd_flowlines
+                ORDER BY nhdplusid
+            """))
+
+            feature_ids = {row[0] for row in result}
+
+        logger.info(f"✅ Found {len(feature_ids):,} NHD feature IDs in database")
+        return feature_ids
+
+    except Exception as e:
+        logger.error(f"❌ Failed to query NHD feature IDs: {e}")
+        raise
 
 
 def log_ingestion(product: str, cycle_time: datetime, status: str,
@@ -69,18 +95,19 @@ def log_ingestion(product: str, cycle_time: datetime, status: str,
         logger.warning(f"Failed to log ingestion for {product}: {e}")
 
 
-def run_subset_ingestion(target_date: datetime, subset_size: int = SUBSET_SIZE):
+def run_subset_ingestion(target_date: datetime):
     """
-    Run full ingestion workflow with a subset of reaches.
+    Run full ingestion workflow filtered by test feature IDs.
 
     Args:
         target_date: Date to ingest
-        subset_size: Number of reaches to include
     """
     logger.info("=" * 80)
-    logger.info(f"SUBSET INGESTION TEST - {target_date.strftime('%Y-%m-%d %HZ')}")
-    logger.info(f"Testing with {subset_size:,} reaches (out of 2.7M total)")
+    logger.info(f"NHD-FILTERED INGESTION - {target_date.strftime('%Y-%m-%d %HZ')}")
     logger.info("=" * 80)
+
+    # Get all feature IDs from NHD database
+    nhd_feature_ids = get_nhd_feature_ids()
 
     scheduler = IngestionScheduler()
     client = NWMClient()
@@ -88,7 +115,7 @@ def run_subset_ingestion(target_date: datetime, subset_size: int = SUBSET_SIZE):
 
     # Product 1: analysis_assim
     logger.info("\n" + "=" * 80)
-    logger.info(f"PRODUCT 1/4: analysis_assim ({subset_size:,} reaches)")
+    logger.info(f"PRODUCT 1/4: analysis_assim")
     logger.info("=" * 80)
 
     started_at = datetime.now(timezone.utc)
@@ -101,7 +128,10 @@ def run_subset_ingestion(target_date: datetime, subset_size: int = SUBSET_SIZE):
             domain="conus"
         )
         df_full = client.parse_channel_rt(filepath)
-        df_subset = df_full.head(subset_size).copy()
+
+        # Filter to only NHD feature IDs
+        df_subset = df_full[df_full['feature_id'].isin(nhd_feature_ids)].copy()
+        logger.info(f"Filtered to {len(df_subset):,} records matching NHD data")
 
         # Insert using scheduler's optimized method
         records = scheduler._insert_hydro_data(
@@ -139,12 +169,12 @@ def run_subset_ingestion(target_date: datetime, subset_size: int = SUBSET_SIZE):
 
         logger.error(f"❌ analysis_assim failed: {e}")
 
-    # Product 2: short_range (just f001 and f018 for testing)
+    # Product 2: short_range (ALL 18 hours)
     logger.info("\n" + "=" * 80)
-    logger.info(f"PRODUCT 2/4: short_range (f001, f018 only - {subset_size:,} reaches)")
+    logger.info(f"PRODUCT 2/4: short_range (f001-f018 - all hours)")
     logger.info("=" * 80)
 
-    for forecast_hour in [1, 18]:  # Just first and last hour for testing
+    for forecast_hour in range(1, 19):  # All 18 forecast hours
         started_at = datetime.now(timezone.utc)
         product_name = f"short_range_f{forecast_hour:03d}"
 
@@ -156,7 +186,10 @@ def run_subset_ingestion(target_date: datetime, subset_size: int = SUBSET_SIZE):
                 domain="conus"
             )
             df_full = client.parse_channel_rt(filepath)
-            df_subset = df_full.head(subset_size).copy()
+
+            # Filter to only NHD feature IDs
+            df_subset = df_full[df_full['feature_id'].isin(nhd_feature_ids)].copy()
+            logger.info(f"f{forecast_hour:03d}: Filtered to {len(df_subset):,} records matching NHD data")
 
             records = scheduler._insert_hydro_data(
                 df=df_subset,
@@ -193,63 +226,71 @@ def run_subset_ingestion(target_date: datetime, subset_size: int = SUBSET_SIZE):
 
             logger.error(f"❌ short_range f{forecast_hour:03d} failed: {e}")
 
-    # Product 3: medium_range_blend (just f024 for testing)
+    # Product 3: medium_range_blend (ALL hours - f003 to f240 every 3 hours)
+    # Only runs at 00Z, 06Z, 12Z, 18Z
     if target_date.hour in [0, 6, 12, 18]:
         logger.info("\n" + "=" * 80)
-        logger.info(f"PRODUCT 3/4: medium_range_blend (f024 only - {subset_size:,} reaches)")
+        logger.info(f"PRODUCT 3/4: medium_range_blend (f003-f240 every 3 hours)")
         logger.info("=" * 80)
 
-        started_at = datetime.now(timezone.utc)
-        try:
-            filepath = client.download_product(
-                product="medium_range_blend",
-                reference_time=target_date,
-                forecast_hour=24,
-                domain="conus"
-            )
-            df_full = client.parse_channel_rt(filepath)
-            df_subset = df_full.head(subset_size).copy()
+        # Forecast hours: 3, 6, 9, ..., 240 (every 3 hours for 10 days)
+        for forecast_hour in range(3, 241, 3):
+            started_at = datetime.now(timezone.utc)
+            product_name = f"medium_range_blend_f{forecast_hour:03d}"
 
-            records = scheduler._insert_hydro_data(
-                df=df_subset,
-                product="medium_range_blend",
-                reference_time=target_date,
-                forecast_hour=24
-            )
-            completed_at = datetime.now(timezone.utc)
+            try:
+                filepath = client.download_product(
+                    product="medium_range_blend",
+                    reference_time=target_date,
+                    forecast_hour=forecast_hour,
+                    domain="conus"
+                )
+                df_full = client.parse_channel_rt(filepath)
 
-            # Log success
-            log_ingestion(
-                product="medium_range_blend_f024",
-                cycle_time=target_date,
-                status="success",
-                records=records,
-                started_at=started_at,
-                completed_at=completed_at
-            )
+                # Filter to only NHD feature IDs
+                df_subset = df_full[df_full['feature_id'].isin(nhd_feature_ids)].copy()
+                logger.info(f"f{forecast_hour:03d}: Filtered to {len(df_subset):,} records matching NHD data")
 
-            total_records += records
-            logger.info(f"✅ medium_range_blend f024: {records:,} records")
-        except Exception as e:
-            completed_at = datetime.now(timezone.utc)
+                records = scheduler._insert_hydro_data(
+                    df=df_subset,
+                    product="medium_range_blend",
+                    reference_time=target_date,
+                    forecast_hour=forecast_hour
+                )
+                completed_at = datetime.now(timezone.utc)
 
-            # Log failure
-            log_ingestion(
-                product="medium_range_blend_f024",
-                cycle_time=target_date,
-                status="failed",
-                error=str(e),
-                started_at=started_at,
-                completed_at=completed_at
-            )
+                # Log success
+                log_ingestion(
+                    product=product_name,
+                    cycle_time=target_date,
+                    status="success",
+                    records=records,
+                    started_at=started_at,
+                    completed_at=completed_at
+                )
 
-            logger.error(f"❌ medium_range_blend failed: {e}")
+                total_records += records
+                logger.info(f"✅ medium_range_blend f{forecast_hour:03d}: {records:,} records")
+            except Exception as e:
+                completed_at = datetime.now(timezone.utc)
+
+                # Log failure
+                log_ingestion(
+                    product=product_name,
+                    cycle_time=target_date,
+                    status="failed",
+                    error=str(e),
+                    started_at=started_at,
+                    completed_at=completed_at
+                )
+
+                logger.error(f"❌ medium_range_blend f{forecast_hour:03d} failed: {e}")
 
     # Product 4: analysis_assim_no_da
     # Only runs at 00Z (midnight UTC)
     if target_date.hour == 0:
         logger.info("\n" + "=" * 80)
-        logger.info(f"PRODUCT 4/4: analysis_assim_no_da ({subset_size:,} reaches)")
+        logger.info(f"PRODUCT 4/4: analysis_assim_no_da")
         logger.info("=" * 80)
 
         started_at = datetime.now(timezone.utc)
@@ -261,7 +302,10 @@ def run_subset_ingestion(target_date: datetime, subset_size: int = SUBSET_SIZE):
                 domain="conus"
             )
             df_full = client.parse_channel_rt(filepath)
-            df_subset = df_full.head(subset_size).copy()
+
+            # Filter to only NHD feature IDs
+            df_subset = df_full[df_full['feature_id'].isin(nhd_feature_ids)].copy()
+            logger.info(f"Filtered to {len(df_subset):,} records matching NHD data")
 
             records = scheduler._insert_hydro_data(
                 df=df_subset,
@@ -304,28 +348,38 @@ def run_subset_ingestion(target_date: datetime, subset_size: int = SUBSET_SIZE):
 
     # Summary
     logger.info("\n" + "=" * 80)
-    logger.info("SUBSET INGESTION TEST COMPLETE")
+    logger.info("NHD-FILTERED INGESTION COMPLETE")
     logger.info("=" * 80)
     logger.info(f"Total records ingested: {total_records:,}")
-    logger.info(f"Subset size: {subset_size:,} reaches")
+    logger.info(f"NHD feature IDs used: {len(nhd_feature_ids):,}")
     logger.info(f"Date: {target_date.strftime('%Y-%m-%d %HZ')}")
-    logger.info("\n✅ If this test succeeded, you're ready to run the full ingestion!")
-    logger.info("   Run: python scripts/run_full_ingestion.py")
+
+    if total_records > 0:
+        logger.info(f"\n✅ SUCCESS! Ingested NWM data for {len(nhd_feature_ids):,} NHD reaches")
+        logger.info(f"   Average: {total_records / len(nhd_feature_ids):.1f} records per reach")
+        logger.info("   NWM-NHD integration is working correctly!")
+    else:
+        logger.info("\n⚠️  No data found for NHD feature IDs")
+        logger.info("   Check if NHD feature IDs exist in NWM files")
 
 
 if __name__ == "__main__":
-    # January 3, 2026 at 00Z
-    target_date = datetime(2026, 1, 4, 20, 0, 0, tzinfo=timezone.utc)
+    # January 5, 2026 at 00Z
+    target_date = datetime(2026, 1, 5, 0, 0, 0, tzinfo=timezone.utc)
 
-    logger.info("\nSubset Ingestion Test Parameters:")
+    logger.info("\nNHD-Filtered Ingestion Parameters:")
     logger.info(f"  Target Date: {target_date.strftime('%Y-%m-%d %HZ')}")
-    logger.info(f"  Subset Size: {SUBSET_SIZE:,} reaches (out of 2.7M)")
-    logger.info(f"  Products: 4 (analysis_assim, short_range sample, medium_range sample, analysis_assim_no_da)")
-    logger.info(f"\n  Expected records: ~{SUBSET_SIZE * 6 * 4:,} (much faster than full run)")
+    logger.info(f"  Filter: Using all NHD feature IDs from database (nhd_flowlines table)")
+    logger.info(f"  Products:")
+    logger.info(f"    - analysis_assim: f000 (current conditions)")
+    logger.info(f"    - short_range: f001-f018 (18-hour forecast, ALL hours)")
+    logger.info(f"    - medium_range_blend: f003-f240 every 3hrs (10-day outlook, 80 forecast hours)")
+    logger.info(f"    - analysis_assim_no_da: f000 (baseline, only at 00Z)")
+    logger.info(f"  Purpose: Full NWM ingestion for API 'now', 'today', and 'outlook' timeframes")
     logger.info("\nStarting in 2 seconds...")
     logger.info("Press Ctrl+C to cancel\n")
 
     import time
     time.sleep(2)
 
-    run_subset_ingestion(target_date, SUBSET_SIZE)
+    run_subset_ingestion(target_date)

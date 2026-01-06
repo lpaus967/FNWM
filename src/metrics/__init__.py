@@ -7,6 +7,7 @@ Available metrics:
 - Rising Limb Detection (Ticket 2.1) ✅
 - Baseflow Dominance Index - BDI (Ticket 2.2) ✅
 - Velocity Suitability Classifier (Ticket 2.3) ✅
+- Flow Percentile Calculator (Epic 7) ✅
 """
 
 from .rising_limb import (
@@ -37,6 +38,17 @@ from .velocity import (
     load_species_config
 )
 
+from .flow_percentile import (
+    compute_flow_percentile,
+    classify_flow_percentile,
+    compute_percentile_with_classification,
+    explain_flow_percentile,
+    get_monthly_mean_flow,
+    compute_flow_percentile_for_reach,
+    FlowClass,
+    PercentileResult
+)
+
 __all__ = [
     # Rising Limb Detection
     'detect_rising_limb',
@@ -59,5 +71,14 @@ __all__ = [
     'classify_velocity_for_reach',
     'classify_velocity_timeseries_for_reach',
     'compute_velocity_statistics',
-    'load_species_config'
+    'load_species_config',
+    # Flow Percentile
+    'compute_flow_percentile',
+    'classify_flow_percentile',
+    'compute_percentile_with_classification',
+    'explain_flow_percentile',
+    'get_monthly_mean_flow',
+    'compute_flow_percentile_for_reach',
+    'FlowClass',
+    'PercentileResult'
 ]
