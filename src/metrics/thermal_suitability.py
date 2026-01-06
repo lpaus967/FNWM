@@ -2,10 +2,12 @@
 Thermal Suitability Index (TSI) Calculator
 
 Computes thermal habitat suitability for fish species based on air temperature data
-from Open-Meteo API, with conversion to estimated water temperature.
+from Open-Meteo API, with enhanced water temperature prediction models.
 
 Design Principles:
-- Air temperature is a proxy for water temperature (typical offset: -3°C)
+- Uses Mohseni S-curve model for nonlinear air-water relationship
+- Incorporates groundwater thermal buffering (BDI-based)
+- Accounts for elevation and reach-specific characteristics
 - Species-specific optimal temperature ranges from config
 - Gradient scoring for sub-optimal conditions
 - Returns normalized 0-1 score (1 = optimal, 0 = unsuitable)
@@ -19,27 +21,38 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Import enhanced prediction model (lazy import to avoid circular dependencies)
+def _get_predictor(engine):
+    """Lazy import of WaterTemperaturePredictor."""
+    from temperature.prediction import WaterTemperaturePredictor
+    return WaterTemperaturePredictor(engine)
 
-# Air to water temperature conversion offset (°C)
+
+# Legacy simple model offset (kept for comparison/fallback)
 # Stream water is typically 2-5°C cooler than air temperature
-AIR_TO_WATER_OFFSET = 3.0
+AIR_TO_WATER_OFFSET_LEGACY = 3.0
 
 
 class ThermalSuitabilityCalculator:
     """Calculate thermal suitability scores for fish habitat."""
 
-    def __init__(self, engine: Engine):
+    def __init__(self, engine: Engine, use_enhanced_model: bool = True):
         """
         Initialize TSI calculator.
 
         Args:
             engine: SQLAlchemy database engine
+            use_enhanced_model: If True, use Mohseni+BDI model; if False, use legacy linear model
         """
         self.engine = engine
+        self.use_enhanced_model = use_enhanced_model
+        self.temp_predictor = None
+        if use_enhanced_model:
+            self.temp_predictor = _get_predictor(engine)
 
-    def _air_to_water_temp(self, air_temp: float) -> float:
+    def _air_to_water_temp_legacy(self, air_temp: float) -> float:
         """
-        Convert air temperature to estimated water temperature.
+        Legacy simple linear conversion (kept for comparison).
 
         Uses conservative offset to estimate stream water temperature.
 
@@ -49,7 +62,46 @@ class ThermalSuitabilityCalculator:
         Returns:
             Estimated water temperature in Celsius
         """
-        return air_temp - AIR_TO_WATER_OFFSET
+        return air_temp - AIR_TO_WATER_OFFSET_LEGACY
+
+    def _predict_water_temp_enhanced(
+        self,
+        nhdplusid: int,
+        air_temp: float,
+        timeframe: str = "now",
+        cloud_cover: Optional[float] = None
+    ) -> Tuple[float, Dict]:
+        """
+        Predict water temperature using enhanced Mohseni + BDI model.
+
+        Args:
+            nhdplusid: NHD reach identifier
+            air_temp: Air temperature in Celsius
+            timeframe: Time period ('now', 'today', 'outlook')
+            cloud_cover: Cloud cover percentage (0-100), optional
+
+        Returns:
+            Tuple of (water_temp, metadata_dict)
+        """
+        try:
+            return self.temp_predictor.predict_for_reach(
+                nhdplusid=nhdplusid,
+                air_temp=air_temp,
+                timeframe=timeframe,
+                cloud_cover_pct=cloud_cover
+            )
+        except Exception as e:
+            logger.warning(
+                f"Enhanced prediction failed for reach {nhdplusid}: {e}. "
+                "Falling back to legacy model."
+            )
+            # Fallback to legacy model
+            legacy_temp = self._air_to_water_temp_legacy(air_temp)
+            return legacy_temp, {
+                'predicted_water_temp': round(legacy_temp, 1),
+                'model': 'legacy_fallback',
+                'error': str(e)
+            }
 
     def _score_temperature(
         self,
@@ -154,23 +206,23 @@ class ThermalSuitabilityCalculator:
         self,
         nhdplusid: int,
         timeframe: str = "now",
-    ) -> Optional[float]:
+    ) -> Optional[Tuple[float, Optional[float]]]:
         """
-        Fetch air temperature data for a reach from database.
+        Fetch air temperature and cloud cover data for a reach from database.
 
         Args:
             nhdplusid: NHD reach identifier
             timeframe: Time period ('now', 'today', 'outlook')
 
         Returns:
-            Average air temperature in Celsius, or None if no data
+            Tuple of (air_temperature, cloud_cover) in Celsius and %, or None if no data
         """
         with self.engine.begin() as conn:
             if timeframe == "now":
                 # Get most recent current temperature (forecast_hour = 0)
                 result = conn.execute(
                     text("""
-                        SELECT temperature_2m
+                        SELECT temperature_2m, cloud_cover
                         FROM temperature_timeseries
                         WHERE nhdplusid = :nhdplusid
                           AND forecast_hour = 0
@@ -182,13 +234,13 @@ class ThermalSuitabilityCalculator:
                 )
 
                 row = result.fetchone()
-                return row[0] if row else None
+                return (row[0], row[1]) if row else None
 
             elif timeframe == "today":
                 # Average temperature for next 6-12 hours
                 result = conn.execute(
                     text("""
-                        SELECT AVG(temperature_2m) as avg_temp
+                        SELECT AVG(temperature_2m) as avg_temp, AVG(cloud_cover) as avg_cloud
                         FROM temperature_timeseries
                         WHERE nhdplusid = :nhdplusid
                           AND forecast_hour BETWEEN 1 AND 12
@@ -199,13 +251,15 @@ class ThermalSuitabilityCalculator:
                 )
 
                 row = result.fetchone()
-                return row[0] if row and row[0] is not None else None
+                if row and row[0] is not None:
+                    return (row[0], row[1])
+                return None
 
             elif timeframe == "outlook":
                 # Average temperature for 24-72 hour forecast
                 result = conn.execute(
                     text("""
-                        SELECT AVG(temperature_2m) as avg_temp
+                        SELECT AVG(temperature_2m) as avg_temp, AVG(cloud_cover) as avg_cloud
                         FROM temperature_timeseries
                         WHERE nhdplusid = :nhdplusid
                           AND forecast_hour BETWEEN 24 AND 72
@@ -216,7 +270,9 @@ class ThermalSuitabilityCalculator:
                 )
 
                 row = result.fetchone()
-                return row[0] if row and row[0] is not None else None
+                if row and row[0] is not None:
+                    return (row[0], row[1])
+                return None
 
         return None
 
@@ -245,9 +301,9 @@ class ThermalSuitabilityCalculator:
         critical_threshold = temp_config.get("critical_threshold", 20)
 
         # Fetch temperature data
-        air_temp = self.fetch_temperature_for_reach(nhdplusid, timeframe)
+        temp_data = self.fetch_temperature_for_reach(nhdplusid, timeframe)
 
-        if air_temp is None:
+        if temp_data is None:
             logger.warning(
                 f"No temperature data available for reach {nhdplusid} ({timeframe})"
             )
@@ -265,8 +321,24 @@ class ThermalSuitabilityCalculator:
                 },
             }
 
-        # Convert air to water temperature
-        water_temp_est = self._air_to_water_temp(air_temp)
+        air_temp, cloud_cover = temp_data
+
+        # Predict water temperature
+        if self.use_enhanced_model:
+            water_temp_est, metadata = self._predict_water_temp_enhanced(
+                nhdplusid=nhdplusid,
+                air_temp=air_temp,
+                timeframe=timeframe,
+                cloud_cover=cloud_cover
+            )
+            model_info = metadata
+        else:
+            water_temp_est = self._air_to_water_temp_legacy(air_temp)
+            model_info = {
+                'model': 'legacy_linear',
+                'predicted_water_temp': round(water_temp_est, 1),
+                'conversion_note': f"Water temp estimated as air temp - {AIR_TO_WATER_OFFSET_LEGACY}°C"
+            }
 
         # Score the temperature
         score, classification, explanation = self._score_temperature(
@@ -283,7 +355,8 @@ class ThermalSuitabilityCalculator:
             "explanation": explanation,
             "air_temperature": round(air_temp, 1),
             "water_temperature_est": round(water_temp_est, 1),
-            "conversion_note": f"Water temp estimated as air temp - {AIR_TO_WATER_OFFSET}°C",
+            "cloud_cover": round(cloud_cover, 0) if cloud_cover is not None else None,
+            "model_info": model_info,
             "thresholds": {
                 "optimal_min": optimal_min,
                 "optimal_max": optimal_max,

@@ -374,7 +374,7 @@ def run_subset_ingestion(target_date: datetime):
 
 if __name__ == "__main__":
     # January 5, 2026 at 00Z
-    target_date = datetime(2026, 1, 5, 0, 0, 0, tzinfo=timezone.utc)
+    target_date = datetime(2026, 1, 6, 11, 0, 0, tzinfo=timezone.utc)
 
     logger.info("\nNHD-Filtered Ingestion Parameters:")
     logger.info(f"  Target Date: {target_date.strftime('%Y-%m-%d %HZ')}")

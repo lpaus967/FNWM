@@ -7,7 +7,8 @@
       "Bash(rm:*)",
       "Bash(tree:*)",
       "Bash(terraform init:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(python:*)"
     ]
   }
 }

@@ -4,6 +4,9 @@ Export map_current_conditions materialized view as GeoJSON.
 This script exports the map-ready hydrology data with flowline geometry
 as a GeoJSON file for use in mapping applications.
 
+The materialized view is automatically refreshed before export to ensure
+the most recent data is included.
+
 Based on EPIC 8 from IMPLEMENTATION_GUIDE.md
 
 Usage:
@@ -38,6 +41,19 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def refresh_materialized_view(engine):
+    """Refresh the map_current_conditions materialized view with latest data."""
+    logger.info("Refreshing materialized view map_current_conditions...")
+
+    try:
+        with engine.begin() as conn:
+            # Refresh the materialized view
+            conn.execute(text("REFRESH MATERIALIZED VIEW map_current_conditions"))
+            logger.info("Materialized view refreshed successfully")
+    except Exception as e:
+        logger.error(f"Error refreshing materialized view: {e}")
+        raise
 
 def build_query(args):
     """Build SQL query based on command-line arguments."""
@@ -136,6 +152,9 @@ def export_geojson(args):
 
     logger.info("Connecting to database...")
     engine = create_engine(database_url)
+
+    # Refresh materialized view to ensure latest data
+    refresh_materialized_view(engine)
 
     try:
         with engine.begin() as conn:

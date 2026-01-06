@@ -2,15 +2,17 @@
 """
 Temperature Ingestion Script
 
-Fetches temperature data from Open-Meteo API for all stream reach centroids
-and stores it in the temperature_timeseries table.
+Fetches historical temperature data from Open-Meteo API for all stream reach centroids
+at the earliest NWM timestamp in the database. Stores data in the temperature_timeseries table.
+
+This script queries the earliest valid_time from your NWM data (hydro_timeseries table)
+and fetches temperature for that specific timestamp only - no forecasts.
 
 Usage:
-    python scripts/production/ingest_temperature.py [--reaches N] [--forecast-days N]
+    python scripts/production/ingest_temperature.py [--reaches N]
 
 Options:
     --reaches N          Limit to N reaches (for testing)
-    --forecast-days N    Number of forecast days to fetch (default: 7, max: 16)
     --batch-size N       Process N reaches per batch (default: 100)
     --delay SECONDS      Delay between API requests (default: 0.1)
 """
@@ -57,6 +59,28 @@ def get_db_engine():
         f"/{os.getenv('DATABASE_NAME')}"
     )
     return create_engine(db_url)
+
+
+def get_earliest_nwm_time(engine) -> datetime:
+    """
+    Get the earliest valid_time from NWM data in the database.
+
+    Args:
+        engine: SQLAlchemy engine
+
+    Returns:
+        Earliest valid_time as timezone-aware datetime (UTC)
+    """
+    query = "SELECT MIN(valid_time) as earliest FROM hydro_timeseries"
+
+    with engine.begin() as conn:
+        result = conn.execute(text(query))
+        row = result.fetchone()
+
+        if not row or not row.earliest:
+            raise ValueError("No NWM data found in hydro_timeseries table")
+
+        return row.earliest
 
 
 def fetch_reach_centroids(engine, limit: int = None) -> List[dict]:
@@ -145,16 +169,16 @@ def insert_temperature_readings(
 
 def run_ingestion(
     max_reaches: int = None,
-    forecast_days: int = 7,
     batch_size: int = 100,
     delay: float = 0.1,
 ) -> TemperatureBatchResult:
     """
     Run temperature ingestion for all reach centroids.
 
+    Fetches temperature data for the earliest valid_time in the NWM database.
+
     Args:
         max_reaches: Maximum number of reaches to process (None = all)
-        forecast_days: Number of forecast days to fetch
         batch_size: Number of reaches to process per batch
         delay: Delay between API requests (seconds)
 
@@ -167,13 +191,17 @@ def run_ingestion(
     engine = get_db_engine()
     client = OpenMeteoClient()
 
+    # Get the target timestamp from NWM data
+    logger.info("Querying earliest NWM valid_time from database...")
+    target_time = get_earliest_nwm_time(engine)
+    logger.info(f"Target timestamp: {target_time}")
+
     # Fetch centroids
     logger.info("Fetching reach centroids from database...")
     centroids = fetch_reach_centroids(engine, limit=max_reaches)
     total_reaches = len(centroids)
 
     logger.info(f"Processing {total_reaches} reaches...")
-    logger.info(f"Forecast days: {forecast_days}")
     logger.info(f"Batch size: {batch_size}")
     logger.info(f"API delay: {delay}s")
     logger.info("=" * 60)
@@ -199,28 +227,26 @@ def run_ingestion(
             lon = centroid['longitude']
 
             try:
-                # Create query
-                query = TemperatureQuery(
-                    nhdplusid=nhdplusid,
+                # Fetch historical temperature for target time
+                reading = client.fetch_historical(
                     latitude=lat,
                     longitude=lon,
-                    forecast_days=forecast_days,
-                    include_current=True,
+                    target_time=target_time,
                 )
 
-                # Fetch temperature data
-                readings = client.fetch_for_reach(query)
+                if reading:
+                    # Set the nhdplusid (fetch_historical sets it to 0)
+                    reading.nhdplusid = nhdplusid
 
-                if readings:
                     # Insert into database
-                    inserted = insert_temperature_readings(engine, readings)
+                    inserted = insert_temperature_readings(engine, [reading])
                     total_readings_inserted += inserted
                     successful_reaches += 1
 
                     if i % 10 == 0:
                         logger.info(
                             f"  [{i}/{len(batch)}] Reach {nhdplusid}: "
-                            f"{inserted} readings inserted"
+                            f"temperature={reading.temperature_2m}°C"
                         )
                 else:
                     failed_reaches += 1
@@ -272,19 +298,13 @@ def run_ingestion(
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Ingest temperature data from Open-Meteo API"
+        description="Ingest temperature data from Open-Meteo API for earliest NWM timestamp"
     )
     parser.add_argument(
         '--reaches',
         type=int,
         default=None,
         help='Limit to N reaches (for testing)',
-    )
-    parser.add_argument(
-        '--forecast-days',
-        type=int,
-        default=7,
-        help='Number of forecast days (default: 7, max: 16)',
     )
     parser.add_argument(
         '--batch-size',
@@ -301,15 +321,9 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate forecast days
-    if args.forecast_days < 0 or args.forecast_days > 16:
-        logger.error("forecast-days must be between 0 and 16")
-        sys.exit(1)
-
     # Run ingestion
     result = run_ingestion(
         max_reaches=args.reaches,
-        forecast_days=args.forecast_days,
         batch_size=args.batch_size,
         delay=args.delay,
     )

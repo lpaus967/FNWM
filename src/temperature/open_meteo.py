@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 class OpenMeteoClient:
     """Client for fetching weather data from Open-Meteo API."""
 
-    BASE_URL = "https://api.open-meteo.com/v1/forecast"
+    FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+    HISTORICAL_URL = "https://archive-api.open-meteo.com/v1/archive"
     TIMEOUT = 30  # seconds
 
     def __init__(self, timeout: int = TIMEOUT):
@@ -109,7 +110,7 @@ class OpenMeteoClient:
             )
 
             response = self.session.get(
-                self.BASE_URL,
+                self.FORECAST_URL,
                 params=params,
                 timeout=self.timeout,
             )
@@ -212,6 +213,101 @@ class OpenMeteoClient:
         )
 
         return readings
+
+    def fetch_historical(
+        self,
+        latitude: float,
+        longitude: float,
+        target_time: datetime,
+    ) -> Optional[TemperatureReading]:
+        """
+        Fetch historical temperature data for a specific timestamp.
+
+        Args:
+            latitude: Location latitude (-90 to 90)
+            longitude: Location longitude (-180 to 180)
+            target_time: Specific datetime to fetch temperature for (UTC)
+
+        Returns:
+            TemperatureReading or None if request fails
+        """
+        # Extract date from target_time
+        date_str = target_time.strftime("%Y-%m-%d")
+
+        # Build query parameters for historical API
+        params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "start_date": date_str,
+            "end_date": date_str,
+            "hourly": [
+                "temperature_2m",
+                "apparent_temperature",
+                "precipitation",
+                "cloud_cover",
+            ],
+            "timezone": "UTC",
+        }
+
+        try:
+            logger.debug(
+                f"Fetching historical temperature for ({latitude:.4f}, {longitude:.4f}) "
+                f"at {target_time}"
+            )
+
+            response = self.session.get(
+                self.HISTORICAL_URL,
+                params=params,
+                timeout=self.timeout,
+            )
+
+            response.raise_for_status()
+            data = response.json()
+
+            # Parse hourly data to find the exact hour we need
+            if "hourly" not in data or not data["hourly"].get("time"):
+                logger.warning(f"No hourly data returned for {target_time}")
+                return None
+
+            times = data["hourly"]["time"]
+            temps = data["hourly"].get("temperature_2m", [])
+            apparent_temps = data["hourly"].get("apparent_temperature", [])
+            precip = data["hourly"].get("precipitation", [])
+            clouds = data["hourly"].get("cloud_cover", [])
+
+            # Find the matching hour
+            target_hour_str = target_time.strftime("%Y-%m-%dT%H:00")
+
+            for i, time_str in enumerate(times):
+                if time_str == target_hour_str:
+                    valid_time = datetime.fromisoformat(time_str).replace(
+                        tzinfo=timezone.utc
+                    )
+
+                    return TemperatureReading(
+                        nhdplusid=0,  # Will be set by caller
+                        valid_time=valid_time,
+                        temperature_2m=temps[i] if i < len(temps) else None,
+                        apparent_temperature=(
+                            apparent_temps[i] if i < len(apparent_temps) else None
+                        ),
+                        precipitation=precip[i] if i < len(precip) else None,
+                        cloud_cover=clouds[i] if i < len(clouds) else None,
+                        source="open-meteo",
+                        forecast_hour=0,  # Historical data, not a forecast
+                    )
+
+            logger.warning(
+                f"Target hour {target_hour_str} not found in response times: {times}"
+            )
+            return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to fetch historical temperature data: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error fetching historical temperature: {e}")
+            return None
 
     def close(self):
         """Close the session."""
