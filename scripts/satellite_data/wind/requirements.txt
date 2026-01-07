@@ -1,0 +1,10 @@
+# HRRR Wind Data Pipeline Requirements
+
+# HTTP requests for downloading data
+requests>=2.31.0
+
+# AWS SDK for S3 uploads
+boto3>=1.34.0
+
+# Required for Python 3.9+ timezone support (built-in for 3.9+)
+# Included in standard library for Python 3.9+

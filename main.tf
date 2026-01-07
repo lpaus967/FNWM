@@ -87,6 +87,70 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "historic_flows_st
   }
 }
 
+# S3 Bucket for Wind Data
+resource "aws_s3_bucket" "wind_data" {
+  bucket = "fnwm-wind-data"
+
+  tags = {
+    Name        = "FNWM Wind Data"
+    Environment = "Production"
+    Purpose     = "HRRR Wind Data Storage"
+    DataSource  = "NOAA NOMADS"
+  }
+}
+
+# S3 Bucket Versioning for Wind Data
+resource "aws_s3_bucket_versioning" "wind_data_versioning" {
+  bucket = aws_s3_bucket.wind_data.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# S3 Bucket Server-Side Encryption for Wind Data
+resource "aws_s3_bucket_server_side_encryption_configuration" "wind_data_encryption" {
+  bucket = aws_s3_bucket.wind_data.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# S3 Bucket Lifecycle Policy for Wind Data (7-day retention)
+resource "aws_s3_bucket_lifecycle_configuration" "wind_data_lifecycle" {
+  bucket = aws_s3_bucket.wind_data.id
+
+  rule {
+    id     = "delete-old-wind-data"
+    status = "Enabled"
+
+    filter {
+      prefix = "hrrr/"
+    }
+
+    expiration {
+      days = 7
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
+}
+
+# S3 Bucket Public Access Block for Wind Data
+resource "aws_s3_bucket_public_access_block" "wind_data_public_access" {
+  bucket = aws_s3_bucket.wind_data.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 # Example resource - EC2 instance (commented out)
 # resource "aws_instance" "example" {
 #   ami           = "ami-0c55b159cbfafe1f0"

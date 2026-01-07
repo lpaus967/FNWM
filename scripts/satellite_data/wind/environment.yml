@@ -1,0 +1,17 @@
+name: fnwm-wind
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python
+  - python=3.11
+
+  # HTTP requests for downloading data
+  - requests>=2.31.0
+
+  # AWS SDK for S3 uploads
+  - boto3>=1.34.0
+
+  # GDAL for GRIB processing
+  - gdal>=3.8.0
