@@ -1,12 +1,14 @@
 # FNWM Project Status
 
-**Last Updated**: 2026-01-05
+**Last Updated**: 2026-01-07
 
 ---
 
-## 🎉 EPIC 1 COMPLETE - Production Ready!
+## 🎉 7 OF 8 EPICS COMPLETE - Production Ready!
 
-The NWM Data Ingestion & Normalization system is fully implemented, tested, and optimized for production use.
+The FNWM system is fully operational with comprehensive features: NWM data ingestion, derived metrics, temperature integration, species scoring, confidence quantification, production API, flow percentiles, and wind data pipeline.
+
+**Only EPIC 8 (Validation & Feedback Loop) remains to complete the original roadmap.**
 
 ---
 
@@ -148,18 +150,19 @@ python scripts/test_db_connection.py
 
 If you get errors, see **AWS_RDS_SETUP.md** troubleshooting section.
 
-### Step 4: Development Status - EPIC 6 COMPLETE ✅
+### Step 4: Development Status - 7 OF 8 EPICS COMPLETE ✅
 
 **Completed EPICs:**
 - ✅ EPIC 1: NWM Data Ingestion & Normalization
 - ✅ EPIC 2: Derived Hydrology Metrics Engine
+- ✅ EPIC 3: Temperature & Thermal Suitability
 - ✅ EPIC 4: Species & Hatch Scoring Framework
 - ✅ EPIC 5: Confidence & Uncertainty
 - ✅ EPIC 6: API & Product Integration
+- ✅ EPIC 7: Flow Percentile Calculator
 
 **Current Status:**
-- **EPIC 3** (Temperature & Thermal Suitability) - Deferred until air temperature API configured
-- **EPIC 7** (Validation & Feedback Loop) - Next up!
+- **EPIC 8** (Validation & Feedback Loop) - Next up!
 
 **API is now live and ready for use!** Run the FastAPI server with:
 ```bash
@@ -378,14 +381,20 @@ Pre-commit hooks will automatically:
   - Successfully tested: 100% ingestion success rate on test data
 
 - [x] **Ticket 3.2 - Thermal Suitability Index (TSI)** ✅ **COMPLETE**
-  - Created `src/metrics/thermal_suitability.py` (310 lines) - Complete TSI calculator
-  - Air-to-water temperature conversion (conservative -3°C offset)
+  - Created `src/metrics/thermal_suitability.py` (388 lines) - Complete TSI calculator
+  - Created `src/temperature/prediction.py` (250+ lines) - Enhanced water temperature models
+  - **Enhanced Temperature Model** (Commit 0016af2 - "refactored temp algo"):
+    - Mohseni S-curve model for air-to-water conversion
+    - Groundwater thermal buffering based on BDI
+    - Elevation adjustments for temperature lapse rate
+    - Conservative defaults for cold-water fisheries
   - Species-specific thermal scoring (optimal, stress, critical thresholds)
   - Gradient scoring for sub-optimal temperatures
   - Integrated TSI into species scoring engine (`src/species/scoring.py`)
   - Restored original scoring weights in `config/species/trout.yaml` (thermal: 0.25)
   - Updated API endpoint `/fisheries/reach/{id}/score` to compute and use TSI
   - Removed EPIC 4 thermal workaround - thermal component now fully active
+  - Test file: `scripts/tests/test_enhanced_temperature_model.py` (381 lines)
   - Successfully tested: TSI score of 0.1 for -4°C water (correctly classified as "critical_low")
   - Temperature data integrated into habitat scoring for all API responses
 
@@ -405,11 +414,7 @@ Pre-commit hooks will automatically:
   - 33 unit tests, 94% coverage
   - Returns likelihood + detailed explanations
 
-**⚠️ TEMPORARY WORKAROUND ACTIVE**: Species scoring implemented without thermal component.
-- Thermal weight set to 0.00 (originally 0.25)
-- Weights redistributed: flow=0.40, velocity=0.33, stability=0.27
-- See `docs/development/epic-4-thermal-workaround.md` for refactoring instructions
-- See `docs/development/epic-4-completion-summary.md` for full details
+**Status**: ✅ EPIC 4 COMPLETE - All components fully integrated including thermal!
 
 ### EPIC 5: Confidence & Uncertainty ✅ **COMPLETE**
 - [x] Ticket 5.1 - Ensemble Spread Calculator ✅
@@ -487,6 +492,98 @@ See `docs/development/epic-5-completion-summary.md` for full details
 - All timeframes ("now", "today", "outlook") fully operational
 
 See `scripts/tests/test_flow_percentile.py` for validation tests
+
+---
+
+## Additional Production Features ✨ **NEW**
+
+### Wind Data Pipeline ✅ **COMPLETE**
+
+**Date Implemented**: 2026-01-06 (Commit 155dd83 - "added wind data s3 fetcher")
+
+**Overview:**
+Production-ready wind data pipeline integrating NOAA HRRR (High-Resolution Rapid Refresh) forecasts with automated S3 storage for map visualization.
+
+**Location**: `scripts/satellite_data/wind/`
+
+**Components:**
+- [x] `run_pipeline.py` - Complete workflow automation with scheduling
+- [x] `dataFetcher.py` - HRRR GRIB2 download from NOAA NOMADS
+  - Hourly updates from latest HRRR forecast
+  - Automatic retry logic with exponential backoff
+  - Spatial resolution: 3 km over CONUS
+- [x] `processGrib.py` - GRIB2 processing to extract wind components
+  - Extracts u/v wind components at 10m height
+  - GeoJSON conversion for web mapping
+  - Metadata enrichment (forecast time, valid time)
+- [x] `uploadToS3.py` - AWS S3 upload with lifecycle management
+  - Automatic 7-day retention (deletes old forecasts)
+  - Public read access for Mapbox integration
+  - Organized by date: `s3://fnwm-wind-data/hrrr/YYYY/MM/DD/`
+
+**Infrastructure (Terraform):**
+- [x] S3 Bucket: `fnwm-wind-data`
+  - Versioning enabled
+  - Server-side encryption (AES256)
+  - Lifecycle policy: 7-day retention
+  - CORS configuration for Mapbox
+- [x] S3 Bucket: `fnwm-historic-flows-staging` (for future use)
+
+**Documentation:**
+- [x] `scripts/satellite_data/wind/README.md` - Complete setup and usage guide
+
+**Capabilities:**
+- Real-time wind data overlays for fishing condition assessment
+- 3 km spatial resolution wind forecasts
+- Hourly temporal resolution
+- Automated data refresh and cleanup
+- Cloud-hosted for scalable access
+
+**Status**: ✅ COMPLETE - Wind pipeline running in production!
+
+---
+
+### Production Workflows & Database Management ✅ **COMPLETE**
+
+**Database Management Scripts:**
+- [x] `src/database/clear_tables.py` - Selective table clearing with confirmation prompts
+  - Clear specific tables or all tables
+  - Safety confirmations to prevent accidental data loss
+  - Preserves database schema while removing data
+
+- [x] `scripts/production/reset_and_repopulate_db.py` - Complete database reset workflow
+  - Automated full database refresh
+  - Coordinates clearing + re-ingestion
+  - Used for testing and production updates
+
+- [x] `scripts/production/run_full_ingestion.py` - Full NWM ingestion orchestrator
+  - Ingests all 4 NWM products in sequence
+  - Progress logging and error handling
+  - Production-ready scheduling
+
+**Map Export & Visualization:**
+- [x] `scripts/production/export_map_geojson.py` - Export current conditions as GeoJSON
+  - Generates map-ready GeoJSON with all metrics
+  - Includes flow, velocity, BDI, confidence, flow percentiles
+  - Color-coded by condition severity
+  - Ready for Mapbox/Leaflet integration
+
+- [x] `scripts/setup/create_map_current_conditions_view.sql` - Materialized view for map rendering
+  - Pre-computed join of NHD spatial + NWM hydrology + metrics
+  - Optimized for fast map queries
+  - Includes all visualization attributes
+
+- [x] `scripts/setup/init_map_view.py` - Initialize and refresh map view
+
+**Full Workflow Script:**
+- [x] `scripts/production/run_full_workflow.py` (Commit b8493b5 - "make a script to run full workflow")
+  - End-to-end automated workflow
+  - Ingestion → Processing → Metrics → Export
+  - Production scheduling support
+
+**Status**: ✅ COMPLETE - Production workflows operational!
+
+---
 
 ### EPIC 8: Validation & Feedback Loop
 - [ ] Ticket 8.1 - Observation Ingestion
@@ -650,7 +747,7 @@ Review these documents:
 
 ---
 
-## Status: EPIC 6 COMPLETE - PRODUCTION API READY! 🚀
+## Status: 7 OF 8 EPICS COMPLETE - PRODUCTION READY! 🚀
 
 ### What's Working Now
 
@@ -667,8 +764,15 @@ Review these documents:
 - Velocity Suitability Classifier (species-aware)
 - All metrics production-ready and tested
 
+✅ **Temperature & Thermal Suitability (EPIC 3)**
+- Open-Meteo API integration for hourly temperature forecasts
+- Enhanced Mohseni S-curve water temperature model
+- Groundwater thermal buffering based on BDI
+- Elevation-adjusted temperature predictions
+- Thermal Suitability Index (TSI) fully integrated into scoring
+
 ✅ **Species & Hatch Scoring (EPIC 4)**
-- Multi-component habitat scoring for fish species
+- Multi-component habitat scoring for fish species (flow, velocity, stability, thermal)
 - Hatch likelihood predictions based on hydrologic signatures
 - Config-driven weights and thresholds
 - Explainable, auditable scores
@@ -686,11 +790,29 @@ Review these documents:
 - Never exposes raw NWM complexity
 - Confidence and explanations in every response
 
+✅ **Flow Percentile Calculator (EPIC 7)**
+- Real-time flow percentile calculation using NHD historical data
+- 7 ecological classification categories (extreme_low to extreme_high)
+- Integrated into all API endpoints
+- 1,588 reaches operational with full NHD-NWM integration
+
+✅ **Wind Data Pipeline** ✨ NEW
+- HRRR wind forecast integration (3 km resolution, hourly updates)
+- Automated S3 storage with 7-day retention
+- GeoJSON export for map visualization
+- Production-ready pipeline with error handling
+
 ✅ **Database**
 - AWS RDS PostgreSQL configured and tested
-- 5 tables created and indexed
+- 11 tables created and indexed (including NHD spatial data)
 - Real NWM data successfully ingested
-- Supporting all API endpoints
+- Supporting all API endpoints and map visualization
+
+✅ **Production Workflows**
+- Database management scripts (clear, reset, repopulate)
+- Map export to GeoJSON
+- Full end-to-end workflow automation
+- Materialized views for map rendering
 
 ✅ **Design Principles Enforced**
 - No raw NWM complexity exposed
@@ -717,40 +839,46 @@ Review these documents:
 
 ### Next Steps
 
-**EPIC 3: Temperature & Thermal Suitability** 🚧 **IN PROGRESS**
+**EPIC 8: Validation & Feedback Loop** 🎯 **NEXT UP**
 
-1. Temperature Ingestion Layer (Ticket 3.1) - Open-Meteo API integration
-2. Thermal Suitability Index (TSI) (Ticket 3.2)
+The only remaining EPIC from the original roadmap:
 
-**Foundation**: Centroid extraction complete - 1,822 lat/lon points ready for temperature queries
+1. **Ticket 8.1 - Observation Ingestion**
+   - User trip report collection
+   - Field observation database schema
+   - API endpoints for data submission
 
-**OR**
+2. **Ticket 8.2 - Model Performance Scoring**
+   - Compare predictions vs. actual fishing outcomes
+   - Track accuracy metrics over time
+   - Identify model drift and calibration needs
 
-**EPIC 8: Validation & Feedback Loop**
+3. **Ticket 8.3 - Threshold Calibration Tooling**
+   - Admin interface for threshold adjustment
+   - A/B testing framework for config changes
+   - Automated threshold optimization
 
-1. Observation Ingestion (Ticket 8.1)
-2. Model Performance Scoring (Ticket 8.2)
-3. Threshold Calibration Tooling (Ticket 8.3)
+**Optional Future Enhancements:**
 
-**OR**
-
-**EPIC 9: Map-Ready Tables & Spatial API**
-
-1. Materialized views for efficient map rendering
-2. Map API endpoints with bounding box queries
-3. Time-slider visualization support
+- **Spatial API Endpoints**: Bounding box queries for map rendering
+- **Time-slider Support**: Historical data visualization
+- **Mobile App Integration**: Native iOS/Android SDKs
+- **Additional Weather Layers**: Precipitation, cloud cover, barometric pressure
+- **Machine Learning**: Pattern recognition for undocumented hatches
 
 ---
 
-**The API is production-ready and can be deployed!**
+**The system is production-ready and fully operational!**
 
-Run it with:
+Run the API with:
 ```bash
 conda activate fnwm
 python -m uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Access docs at: `http://localhost:8000/docs`
+Access interactive docs at: `http://localhost:8000/docs`
+
+**7 of 8 EPICs complete. Temperature integration operational. Wind data pipeline live.**
 
 **Shipping raw hydrology is easy. Shipping trusted fisheries intelligence is the work.**
 

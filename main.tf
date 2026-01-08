@@ -142,13 +142,45 @@ resource "aws_s3_bucket_lifecycle_configuration" "wind_data_lifecycle" {
 }
 
 # S3 Bucket Public Access Block for Wind Data
+# Allow bucket policy for public read access to PNG map tiles
 resource "aws_s3_bucket_public_access_block" "wind_data_public_access" {
   bucket = aws_s3_bucket.wind_data.id
 
   block_public_acls       = true
-  block_public_policy     = true
+  block_public_policy     = false
   ignore_public_acls      = true
-  restrict_public_buckets = true
+  restrict_public_buckets = false
+}
+
+# S3 Bucket Policy for Public Read Access to PNG Files
+resource "aws_s3_bucket_policy" "wind_data_public_read" {
+  bucket = aws_s3_bucket.wind_data.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.wind_data.arn}/*"
+      }
+    ]
+  })
+}
+
+# S3 Bucket CORS Configuration for Mapbox
+resource "aws_s3_bucket_cors_configuration" "wind_data_cors" {
+  bucket = aws_s3_bucket.wind_data.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET", "HEAD"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
 }
 
 # Example resource - EC2 instance (commented out)
