@@ -39,6 +39,7 @@ venv.bak/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -63,6 +64,7 @@ coverage.xml
 data/raw/
 data/processed/
 data/cache/
+data/exports/
 *.nc
 *.nc4
 *.grib
@@ -103,6 +105,8 @@ secrets/
 
 # OS specific
 Thumbs.db
+nul
+*.bat
 
 # Terraform
 .terraform/
