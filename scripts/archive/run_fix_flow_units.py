@@ -56,7 +56,7 @@ def show_sample_before(engine):
                 qama as jan_flow,
                 qema as may_flow,
                 qfma as june_flow
-            FROM nhd_flow_statistics
+            FROM nhd.flow_statistics
             WHERE qama IS NOT NULL
             LIMIT 3
         """))
@@ -86,7 +86,7 @@ def apply_conversion(engine):
         # Convert all flow columns
         # NOTE: Only Jan-Jun columns exist in schema (qama-qfma)
         result = conn.execute(text("""
-            UPDATE nhd_flow_statistics
+            UPDATE nhd.flow_statistics
             SET
                 -- Monthly mean flows (Jan-Jun only, as per schema)
                 qama = CASE WHEN qama IS NOT NULL THEN qama / :factor ELSE NULL END,
@@ -125,7 +125,7 @@ def show_sample_after(engine):
                 qama as jan_flow,
                 qema as may_flow,
                 qfma as june_flow
-            FROM nhd_flow_statistics
+            FROM nhd.flow_statistics
             WHERE qama IS NOT NULL
             LIMIT 3
         """))
@@ -166,7 +166,7 @@ def verify_conversion(engine):
                 AVG(flow_percentile) as avg_percentile,
                 MIN(flow_percentile) as min_percentile,
                 MAX(flow_percentile) as max_percentile
-            FROM map_current_conditions
+            FROM derived.map_current_conditions
             WHERE flow_percentile IS NOT NULL
         """))
 

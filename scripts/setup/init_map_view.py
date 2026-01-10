@@ -67,7 +67,7 @@ def init_map_view():
             # Check row count
             result = conn.execute(text("""
                 SELECT COUNT(*) as count
-                FROM map_current_conditions
+                FROM derived.map_current_conditions
             """))
 
             row_count = result.scalar()
@@ -89,7 +89,7 @@ def init_map_view():
                     water_temp_estimate_c,
                     water_temp_estimate_f,
                     confidence
-                FROM map_current_conditions
+                FROM derived.map_current_conditions
                 LIMIT 5
             """))
 

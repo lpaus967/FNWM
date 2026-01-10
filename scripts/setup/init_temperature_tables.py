@@ -65,7 +65,7 @@ def init_temperature_tables():
                     ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT fk_temperature_reach
                         FOREIGN KEY (nhdplusid)
-                        REFERENCES nhd_reach_centroids(nhdplusid)
+                        REFERENCES nhd.reach_centroids(nhdplusid)
                         ON DELETE CASCADE,
                     CONSTRAINT unique_temperature_reading
                         UNIQUE (nhdplusid, valid_time, source, forecast_hour)

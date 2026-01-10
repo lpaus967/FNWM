@@ -66,7 +66,7 @@ def test_velocity_with_db():
                        MIN(value) as min_vel,
                        MAX(value) as max_vel,
                        AVG(value) as avg_vel
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE variable = 'velocity'
             """))
 
@@ -86,7 +86,7 @@ def test_velocity_with_db():
             print("Finding reach with velocity data...")
             result = conn.execute(text("""
                 SELECT feature_id, COUNT(*) as record_count
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE variable = 'velocity'
                 GROUP BY feature_id
                 ORDER BY COUNT(*) DESC
@@ -107,7 +107,7 @@ def test_velocity_with_db():
             # Get a single timestamp
             result = conn.execute(text("""
                 SELECT valid_time, value
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND variable = 'velocity'
                 ORDER BY valid_time DESC
@@ -184,7 +184,7 @@ def test_velocity_with_db():
             result = conn.execute(text("""
                 SELECT MIN(valid_time) as start_time,
                        MAX(valid_time) as end_time
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND variable = 'velocity'
             """), {'feature_id': feature_id})

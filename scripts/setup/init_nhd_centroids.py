@@ -2,7 +2,7 @@
 """
 Initialize NHD Reach Centroids Table
 
-Extracts lat/lon centroids from nhd_flowlines PostGIS geometries
+Extracts lat/lon centroids from nhd.flowlines PostGIS geometries
 for use with temperature APIs (Open-Meteo).
 
 Usage:
@@ -60,7 +60,7 @@ def init_centroids():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT fk_nhd_flowlines
                         FOREIGN KEY (nhdplusid)
-                        REFERENCES nhd_flowlines(nhdplusid)
+                        REFERENCES nhd.flowlines(nhdplusid)
                         ON DELETE CASCADE
                 )
             """))
@@ -75,15 +75,15 @@ def init_centroids():
             print("  Index created successfully")
 
             # Step 3: Populate with centroids
-            print("\n[3/4] Extracting centroids from nhd_flowlines...")
+            print("\n[3/4] Extracting centroids from nhd.flowlines...")
             result = conn.execute(text("""
-                INSERT INTO nhd_reach_centroids (nhdplusid, permanent_identifier, latitude, longitude)
+                INSERT INTO nhd.reach_centroids (nhdplusid, permanent_identifier, latitude, longitude)
                 SELECT
                     nhdplusid,
                     permanent_identifier,
                     ST_Y(ST_Centroid(geom)) AS latitude,
                     ST_X(ST_Centroid(geom)) AS longitude
-                FROM nhd_flowlines
+                FROM nhd.flowlines
                 WHERE geom IS NOT NULL
                 ON CONFLICT (nhdplusid) DO UPDATE
                     SET permanent_identifier = EXCLUDED.permanent_identifier,
@@ -102,7 +102,7 @@ def init_centroids():
                     ROUND(MAX(latitude)::numeric, 2) as max_lat,
                     ROUND(MIN(longitude)::numeric, 2) as min_lon,
                     ROUND(MAX(longitude)::numeric, 2) as max_lon
-                FROM nhd_reach_centroids
+                FROM nhd.reach_centroids
             """))
 
             stats = result.fetchone()
@@ -142,7 +142,7 @@ def verify_centroids():
                 permanent_identifier,
                 ROUND(latitude::numeric, 4) as lat,
                 ROUND(longitude::numeric, 4) as lon
-            FROM nhd_reach_centroids
+            FROM nhd.reach_centroids
             ORDER BY nhdplusid
             LIMIT 5
         """))
@@ -154,7 +154,7 @@ def verify_centroids():
         # Check for invalid coordinates
         result = conn.execute(text("""
             SELECT COUNT(*) as invalid_count
-            FROM nhd_reach_centroids
+            FROM nhd.reach_centroids
             WHERE latitude < -90 OR latitude > 90
                OR longitude < -180 OR longitude > 180
         """))

@@ -65,7 +65,7 @@ def test_species_scoring_with_db():
                     feature_id,
                     COUNT(DISTINCT variable) as var_count,
                     COUNT(*) as total_records
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                 GROUP BY feature_id
                 HAVING COUNT(DISTINCT variable) >= 5
@@ -87,7 +87,7 @@ def test_species_scoring_with_db():
             # Get latest time with all required variables
             result = conn.execute(text("""
                 SELECT valid_time
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                 GROUP BY valid_time
@@ -108,7 +108,7 @@ def test_species_scoring_with_db():
             # Fetch all required data for this reach/time
             result = conn.execute(text("""
                 SELECT variable, value
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND valid_time = :valid_time
                   AND variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
@@ -139,7 +139,7 @@ def test_species_scoring_with_db():
                 SELECT
                     PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY value) as p50,
                     :flow as current_flow
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND variable = 'streamflow'
                   AND value > 0
@@ -238,7 +238,7 @@ def test_species_scoring_with_db():
 
             result = conn.execute(text("""
                 SELECT DISTINCT feature_id
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                 GROUP BY feature_id
                 HAVING COUNT(DISTINCT variable) = 5
@@ -253,7 +253,7 @@ def test_species_scoring_with_db():
                 # Get data for this reach
                 result2 = conn.execute(text("""
                     SELECT variable, AVG(value) as avg_value
-                    FROM hydro_timeseries
+                    FROM nwm.hydro_timeseries
                     WHERE feature_id = :feature_id
                       AND variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                     GROUP BY variable

@@ -262,7 +262,7 @@ def test_thermal_suitability_integration(engine):
                 (f.maxelevsmo + f.minelevsmo) / 200.0 as elevation_m,
                 f.size_class,
                 f.totdasqkm
-            FROM nhd_flowlines f
+            FROM nhd.flowlines f
             WHERE f.gnis_name IS NOT NULL
               AND f.maxelevsmo IS NOT NULL
               AND f.size_class IS NOT NULL

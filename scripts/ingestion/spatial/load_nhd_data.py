@@ -228,7 +228,7 @@ def load_nhd_geojson(geojson_path: str, batch_size: int = 500):
                     else:
                         fdate_int = fdate_raw
 
-                # 1. Insert into nhd_flowlines (CRITICAL - needed for NWM joins)
+                # 1. Insert into nhd.flowlines (CRITICAL - needed for NWM joins)
                 # Note: New NHDPlus HR uses uppercase field names and COMID
                 # For MultiLineString, use ST_LineMerge to merge into a single LineString
                 try:
@@ -239,7 +239,7 @@ def load_nhd_geojson(geojson_path: str, batch_size: int = 500):
                             geom_sql = "ST_GeomFromText(:wkt, 4326)"
 
                         conn.execute(text(f"""
-                            INSERT INTO nhd_flowlines (
+                            INSERT INTO nhd.flowlines (
                                 nhdplusid, permanent_identifier, gnis_id, gnis_name,
                                 reachcode, lengthkm, areasqkm, totdasqkm, divdasqkm,
                                 streamorde, streamleve, streamcalc, ftype, fcode,
@@ -294,7 +294,7 @@ def load_nhd_geojson(geojson_path: str, batch_size: int = 500):
                 try:
                     with engine.begin() as conn:
                         conn.execute(text("""
-                            INSERT INTO nhd_network_topology (
+                            INSERT INTO nhd.network_topology (
                                 nhdplusid, fromnode, tonode, hydroseq, levelpathi,
                                 terminalpa, uphydroseq, uplevelpat, dnhydroseq,
                                 dnlevelpat, dnminorhyd, dndraincou, pathlength,
@@ -340,7 +340,7 @@ def load_nhd_geojson(geojson_path: str, batch_size: int = 500):
                 try:
                     with engine.begin() as conn:
                         conn.execute(text("""
-                            INSERT INTO nhd_flow_statistics (
+                            INSERT INTO nhd.flow_statistics (
                                 nhdplusid, qama, qbma, qcma, qdma, qema, qfma,
                                 qincrama, qincrbma, qincrcma, qincrdma, qincrema, qincrfma,
                                 vama, vbma, vcma, vdma, vema,
@@ -419,13 +419,13 @@ def load_nhd_geojson(geojson_path: str, batch_size: int = 500):
     try:
         with engine.begin() as conn:
             # Count records in each table
-            result = conn.execute(text("SELECT COUNT(*) FROM nhd_flowlines"))
+            result = conn.execute(text("SELECT COUNT(*) FROM nhd.flowlines"))
             flowlines_count = result.fetchone()[0]
 
-            result = conn.execute(text("SELECT COUNT(*) FROM nhd_network_topology"))
+            result = conn.execute(text("SELECT COUNT(*) FROM nhd.network_topology"))
             topology_count = result.fetchone()[0]
 
-            result = conn.execute(text("SELECT COUNT(*) FROM nhd_flow_statistics"))
+            result = conn.execute(text("SELECT COUNT(*) FROM nhd.flow_statistics"))
             stats_count = result.fetchone()[0]
 
             logger.info(f"  nhd_flowlines: {flowlines_count:,} rows")
@@ -437,7 +437,7 @@ def load_nhd_geojson(geojson_path: str, batch_size: int = 500):
             logger.info("Sample data (first 5 reaches):")
             result = conn.execute(text("""
                 SELECT nhdplusid, gnis_name, streamorde, totdasqkm, size_class
-                FROM nhd_flowlines
+                FROM nhd.flowlines
                 ORDER BY nhdplusid
                 LIMIT 5
             """))
@@ -456,13 +456,13 @@ def load_nhd_geojson(geojson_path: str, batch_size: int = 500):
     logger.info("Next steps:")
     logger.info("1. Test NWM-NHD joins:")
     logger.info("   SELECT h.feature_id, n.gnis_name, h.streamflow_m3s")
-    logger.info("   FROM hydro_timeseries h")
-    logger.info("   JOIN nhd_flowlines n ON h.feature_id = n.nhdplusid")
+    logger.info("   FROM nwm.hydro_timeseries h")
+    logger.info("   JOIN nhd.flowlines n ON h.feature_id = n.nhdplusid")
     logger.info("   LIMIT 10;")
     logger.info("")
     logger.info("2. Query spatial data:")
     logger.info("   SELECT nhdplusid, gnis_name, ST_AsText(geom)")
-    logger.info("   FROM nhd_flowlines WHERE gnis_name IS NOT NULL LIMIT 5;")
+    logger.info("   FROM nhd.flowlines WHERE gnis_name IS NOT NULL LIMIT 5;")
     logger.info("")
 
     return True

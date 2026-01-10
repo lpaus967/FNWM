@@ -23,7 +23,7 @@ with engine.begin() as conn:
     result = conn.execute(text("""
         SELECT id, product, started_at,
                EXTRACT(EPOCH FROM (NOW() - started_at)) as duration_sec
-        FROM ingestion_log
+        FROM nwm.ingestion_log
         WHERE status = 'running'
         AND EXTRACT(EPOCH FROM (NOW() - started_at)) > 3600
         ORDER BY started_at DESC
@@ -45,7 +45,7 @@ with engine.begin() as conn:
         # Mark them as failed
         print("Marking orphaned jobs as failed...")
         conn.execute(text("""
-            UPDATE ingestion_log
+            UPDATE nwm.ingestion_log
             SET
                 status = 'failed',
                 error_message = 'Process killed/orphaned - marked as failed during cleanup',
@@ -66,7 +66,7 @@ print()
 with engine.begin() as conn:
     result = conn.execute(text("""
         SELECT status, COUNT(*) as count
-        FROM ingestion_log
+        FROM nwm.ingestion_log
         GROUP BY status
         ORDER BY status
     """))

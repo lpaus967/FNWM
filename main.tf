@@ -156,6 +156,9 @@ resource "aws_s3_bucket_public_access_block" "wind_data_public_access" {
 resource "aws_s3_bucket_policy" "wind_data_public_read" {
   bucket = aws_s3_bucket.wind_data.id
 
+  # Ensure public access block settings are applied first
+  depends_on = [aws_s3_bucket_public_access_block.wind_data_public_access]
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [

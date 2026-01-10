@@ -185,7 +185,7 @@ def detect_rising_limb_for_reach(
     # Query streamflow data for the reach
     query = text("""
         SELECT valid_time, value
-        FROM hydro_timeseries
+        FROM nwm.hydro_timeseries
         WHERE feature_id = :feature_id
           AND variable = 'streamflow'
           AND valid_time BETWEEN :start_time AND :end_time

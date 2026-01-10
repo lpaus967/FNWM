@@ -10,7 +10,7 @@ This repository contains the core engineering code that transforms NOAA's **Nati
 
 This is **not** a generic hydrology ingestion repo. Its purpose is to ingest a *minimal, opinionated subset* of NWM products and convert them into **species-, hatch-, and reach-specific metrics** that can be confidently surfaced to users.
 
-**Live Features:** NWM ingestion, derived hydrologic metrics, thermal suitability, species/hatch scoring, confidence quantification, flow percentiles, wind forecasts, and production API.
+**Live Features:** NWM ingestion, derived hydrologic metrics, thermal suitability, species/hatch scoring, confidence quantification, flow percentiles, wind forecasts, USGS gage integration, NWM-USGS validation, and production API.
 
 ---
 
@@ -19,12 +19,14 @@ This is **not** a generic hydrology ingestion repo. Its purpose is to ingest a *
 At a high level, this system:
 
 1. **Ingests** selected NWM channel routing products from NOAA NOMADS
-2. **Normalizes** all data into clean time abstractions ("Now", "Today", "Outlook")
-3. **Computes** derived hydrologic and ecological metrics (rising limbs, baseflow, velocity, thermal suitability, flow percentiles)
-4. **Integrates** weather data (Open-Meteo temperature, HRRR wind forecasts) for comprehensive condition assessment
-5. **Scores** species-specific habitat suitability and hatch likelihood using transparent, auditable algorithms
-6. **Quantifies** confidence and uncertainty in all predictions
-7. **Exposes** clean REST APIs that never leak raw NWM complexity
+2. **Integrates** real-time USGS gage observations for validation and ground truth
+3. **Normalizes** all data into clean time abstractions ("Now", "Today", "Outlook")
+4. **Computes** derived hydrologic and ecological metrics (rising limbs, baseflow, velocity, thermal suitability, flow percentiles)
+5. **Integrates** weather data (Open-Meteo temperature, HRRR wind forecasts) for comprehensive condition assessment
+6. **Validates** NWM predictions against USGS observations with statistical performance metrics
+7. **Scores** species-specific habitat suitability and hatch likelihood using transparent, auditable algorithms
+8. **Quantifies** confidence and uncertainty in all predictions
+9. **Exposes** clean REST APIs that never leak raw NWM complexity
 
 The result is **trusted decision support**, not raw model output.
 
@@ -147,21 +149,35 @@ Outputs are classified as **High / Medium / Low** and included alongside all rec
 
 ---
 
-## 🧪 Validation Framework (Planned - EPIC 8)
+## 🧪 Validation Framework ✅
 
-The final component of the system will evaluate predictions against observations:
+The validation framework evaluates NWM predictions against real-world observations:
 
-- User trip reports (planned)
-- Hatch observations (planned)
-- USGS gauges (sanity checks)
+**Implemented:**
+- **USGS Gage Integration** ✅ – Real-time streamflow observations from 7 monitoring stations
+  - 15-minute interval data ingestion
+  - Discharge, gage height, and water temperature
+  - Spatial mapping to NHD flowlines (within 100m)
+  - Materialized views for quick access to latest readings
+- **NWM-USGS Validation** ✅ – Statistical comparison of predictions vs observations
+  - Pearson correlation coefficient
+  - RMSE (Root Mean Square Error)
+  - MAE (Mean Absolute Error)
+  - Bias and percent bias
+  - Nash-Sutcliffe Efficiency (NSE)
+  - Performance ratings (Excellent, Very Good, Good, Satisfactory, Unsatisfactory)
+  - Historical validation tracking
+- **Automated Validation Pipeline** ✅ – Integrated into production ingestion workflow
+  - Runs after each NWM data ingestion
+  - Stores validation metrics in database
+  - Provides model performance insights
 
-Key metrics to track:
-- Precision
-- Recall
-- Lead time
-- Threshold calibration
+**Planned:**
+- User trip reports (EPIC 8)
+- Hatch observations (EPIC 8)
+- Expanded gage network coverage
 
-**Status:** Database schema created, ingestion and scoring modules pending implementation.
+**Status:** Core validation infrastructure complete and operational. USGS data integration and NWM validation metrics actively tracking model performance.
 
 ---
 
@@ -185,16 +201,24 @@ src/
 ├── confidence/        # Uncertainty & confidence scoring ✅
 ├── api/               # FastAPI endpoints ✅
 ├── database/          # Database utilities ✅
-└── validation/        # Model performance & feedback loop (planned)
+├── usgs/              # USGS gage data integration ✅
+│   ├── client.py      # USGS Water Services API client
+│   └── schemas.py     # USGS data models
+└── validation/        # Model performance & validation ✅
+    └── nwm_usgs_validator.py  # NWM-USGS comparison metrics
 
 scripts/
 ├── setup/             # Database initialization
 │   ├── init_nhd_schema.py
 │   ├── init_temperature_tables.py
+│   ├── init_usgs_flowsites.py      # USGS gage sites setup
+│   ├── init_usgs_data_table.py     # USGS data table setup
+│   ├── init_validation_table.py    # Validation metrics setup
 │   └── create_*.sql
 ├── production/        # Production workflows
 │   ├── run_full_ingestion.py
 │   ├── ingest_temperature.py
+│   ├── ingest_usgs_data.py         # USGS data ingestion
 │   ├── export_map_geojson.py
 │   └── reset_and_repopulate_db.py
 ├── satellite_data/    # External data pipelines ✅
@@ -206,6 +230,8 @@ scripts/
 └── tests/             # Test & verification scripts
     ├── test_flow_percentile.py
     ├── test_enhanced_temperature_model.py
+    ├── test_usgs_client.py         # USGS API integration test
+    ├── test_validation.py          # NWM-USGS validation test
     └── ...
 
 config/
@@ -217,9 +243,11 @@ config/
 **Database Integration:**
 - PostgreSQL 17.6 with PostGIS extension (AWS RDS)
 - TimescaleDB for time-series hypertables
-- 11 tables including spatial, hydrologic, thermal, and network data
+- 14 tables including spatial, hydrologic, thermal, validation, and USGS gage data
 - 1,822 NHDPlus reaches with spatial geometry
 - 1,588 reaches operational with full NWM-NHD-thermal integration
+- 7 USGS gage sites for real-time validation
+- Materialized views for optimized data access
 
 **Cloud Infrastructure:**
 - Terraform-managed AWS resources
@@ -283,8 +311,11 @@ python -m uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 ### Production Workflows
 
 ```bash
-# Full NWM data ingestion
-python scripts/production/run_full_ingestion.py
+# Full NWM data ingestion with USGS validation
+python scripts/dev/run_subset_ingestion.py
+
+# USGS gage data ingestion
+python scripts/production/ingest_usgs_data.py
 
 # Temperature data ingestion
 python scripts/production/ingest_temperature.py
@@ -306,12 +337,14 @@ See [docs/development/project-status.md](docs/development/project-status.md) for
 **External Data Sources:**
 - NOAA National Water Model: https://water.noaa.gov/about/nwm
 - NWM Data Access (NOMADS): https://nomads.ncep.noaa.gov/pub/data/nccf/com/nwm/
+- USGS Water Services API: https://waterservices.usgs.gov/
 - Open-Meteo Weather API: https://open-meteo.com/
 - HRRR Wind Data: NOAA NOMADS GRIB2 archive
 
 **Project Documentation:**
-- [Project Status](docs/development/project-status.md) – Current implementation status (7/8 EPICs complete)
+- [Project Status](docs/development/project-status.md) – Current implementation status
 - [NHD Integration Guide](docs/guides/nhd-integration.md) – Spatial data integration
+- [USGS Integration Guide](docs/guides/usgs-integration.md) – USGS gage data and validation
 - [EPIC Completion Summaries](docs/development/) – Detailed completion reports
 
 **API Documentation:**
@@ -328,5 +361,5 @@ Shipping **trusted fisheries intelligence**—that users can understand, trust, 
 
 **We did the work.** 🚀
 
-**Status:** 7 of 8 EPICs complete. Production-ready API. 1,588 operational stream reaches with full hydrologic, thermal, and spatial integration.
+**Status:** EPIC 8 validation framework in progress. Production-ready API with USGS validation. 1,588 operational stream reaches with full hydrologic, thermal, and spatial integration. 7 USGS gages actively validating NWM predictions.
 

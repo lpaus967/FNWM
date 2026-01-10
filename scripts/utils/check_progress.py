@@ -11,14 +11,14 @@ engine = create_engine(os.getenv('DATABASE_URL'))
 
 with engine.begin() as conn:
     # Check total records
-    result = conn.execute(text("SELECT COUNT(*) FROM hydro_timeseries"))
+    result = conn.execute(text("SELECT COUNT(*) FROM nwm.hydro_timeseries"))
     total = result.fetchone()[0]
     print(f"Total records in database: {total:,}")
 
     # Check by source
     result = conn.execute(text("""
         SELECT source, COUNT(*) as count
-        FROM hydro_timeseries
+        FROM nwm.hydro_timeseries
         GROUP BY source
     """))
     print("\nRecords by source:")
@@ -29,7 +29,7 @@ with engine.begin() as conn:
     result = conn.execute(text("""
         SELECT id, product, status, records_ingested,
                EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - started_at)) as duration_sec
-        FROM ingestion_log
+        FROM nwm.ingestion_log
         ORDER BY started_at DESC
         LIMIT 3
     """))

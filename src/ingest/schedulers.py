@@ -99,7 +99,7 @@ class IngestionScheduler:
         """
         with self.engine.begin() as conn:
             result = conn.execute(text("""
-                INSERT INTO ingestion_log (
+                INSERT INTO nwm.ingestion_log (
                     product, cycle_time, domain, status, started_at
                 )
                 VALUES (:product, :cycle_time, :domain, 'running', NOW())
@@ -132,7 +132,7 @@ class IngestionScheduler:
 
         with self.engine.begin() as conn:
             conn.execute(text("""
-                UPDATE ingestion_log
+                UPDATE nwm.ingestion_log
                 SET
                     status = :status,
                     records_ingested = :records,
@@ -233,7 +233,7 @@ class IngestionScheduler:
         forecast_hour: Optional[int] = None
     ) -> int:
         """
-        Insert hydrology data into hydro_timeseries table.
+        Insert hydrology data into nwm.hydro_timeseries table.
 
         Uses TimeNormalizer to convert to canonical time abstraction.
         Uses PostgreSQL COPY for fast bulk insertion.
@@ -331,7 +331,7 @@ class IngestionScheduler:
 
             # Step 3: Insert from staging to final table with conflict handling
             result = conn.execute(text("""
-                INSERT INTO hydro_timeseries (
+                INSERT INTO nwm.hydro_timeseries (
                     feature_id, valid_time, variable, value, source, forecast_hour, ingested_at
                 )
                 SELECT

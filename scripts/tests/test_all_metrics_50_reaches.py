@@ -90,7 +90,7 @@ def test_all_metrics_50_reaches():
                         SUM(CASE WHEN variable = 'qBtmVertRunoff' THEN 1 ELSE 0 END) as has_btm,
                         SUM(CASE WHEN variable = 'qBucket' THEN 1 ELSE 0 END) as has_bucket,
                         SUM(CASE WHEN variable = 'qSfcLatRunoff' THEN 1 ELSE 0 END) as has_sfc
-                    FROM hydro_timeseries
+                    FROM nwm.hydro_timeseries
                     GROUP BY feature_id, valid_time
                     HAVING
                         SUM(CASE WHEN variable = 'streamflow' THEN 1 ELSE 0 END) > 0 AND
@@ -134,7 +134,7 @@ def test_all_metrics_50_reaches():
                     # Get latest timestamp with complete data
                     query_time = text("""
                         SELECT valid_time
-                        FROM hydro_timeseries
+                        FROM nwm.hydro_timeseries
                         WHERE feature_id = :feature_id
                           AND variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                         GROUP BY valid_time
@@ -154,7 +154,7 @@ def test_all_metrics_50_reaches():
                     # Get all data for this timestamp
                     query_data = text("""
                         SELECT variable, value
-                        FROM hydro_timeseries
+                        FROM nwm.hydro_timeseries
                         WHERE feature_id = :feature_id
                           AND valid_time = :valid_time
                           AND variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
@@ -166,7 +166,7 @@ def test_all_metrics_50_reaches():
                     # Get streamflow time series for rising limb detection
                     query_flow_series = text("""
                         SELECT valid_time, value
-                        FROM hydro_timeseries
+                        FROM nwm.hydro_timeseries
                         WHERE feature_id = :feature_id
                           AND variable = 'streamflow'
                         ORDER BY valid_time ASC

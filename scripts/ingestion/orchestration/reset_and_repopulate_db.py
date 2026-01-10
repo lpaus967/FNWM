@@ -165,13 +165,13 @@ def verify_nhd_data_loaded():
     cursor = conn.cursor()
 
     try:
-        cursor.execute("SELECT COUNT(*) FROM nhd_flowlines")
+        cursor.execute("SELECT COUNT(*) FROM nhd.flowlines")
         flowline_count = cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(*) FROM nhd_network_topology")
+        cursor.execute("SELECT COUNT(*) FROM nhd.network_topology")
         topology_count = cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(*) FROM nhd_flow_statistics")
+        cursor.execute("SELECT COUNT(*) FROM nhd.flow_statistics")
         stats_count = cursor.fetchone()[0]
 
         conn.close()
@@ -200,7 +200,7 @@ def verify_centroids_created():
     cursor = conn.cursor()
 
     try:
-        cursor.execute("SELECT COUNT(*) FROM nhd_reach_centroids")
+        cursor.execute("SELECT COUNT(*) FROM nhd.reach_centroids")
         centroid_count = cursor.fetchone()[0]
         conn.close()
 
@@ -247,7 +247,7 @@ def extract_centroids():
     print("="*80)
     print("STEP 2: EXTRACTING REACH CENTROIDS")
     print("="*80)
-    print("Extracting lat/lon centroids from nhd_flowlines for temperature API...\n")
+    print("Extracting lat/lon centroids from nhd.flowlines for temperature API...\n")
 
     script_path = Path(__file__).parent.parent / "setup" / "init_nhd_centroids.py"
     result = subprocess.run(

@@ -56,7 +56,7 @@ def test_bdi_with_db():
             print("Checking for flow component data...")
             result = conn.execute(text("""
                 SELECT variable, COUNT(*) as count
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE variable IN ('qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                 GROUP BY variable
                 ORDER BY variable
@@ -82,7 +82,7 @@ def test_bdi_with_db():
             result = conn.execute(text("""
                 WITH component_counts AS (
                     SELECT feature_id, valid_time, COUNT(DISTINCT variable) as num_vars
-                    FROM hydro_timeseries
+                    FROM nwm.hydro_timeseries
                     WHERE variable IN ('qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                     GROUP BY feature_id, valid_time
                     HAVING COUNT(DISTINCT variable) = 3
@@ -108,7 +108,7 @@ def test_bdi_with_db():
             # Get a single timestamp with complete data
             result = conn.execute(text("""
                 SELECT valid_time, COUNT(DISTINCT variable) as num_vars
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND variable IN ('qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                 GROUP BY valid_time
@@ -134,7 +134,7 @@ def test_bdi_with_db():
             # Query flow components
             result = conn.execute(text("""
                 SELECT variable, value
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND valid_time = :valid_time
                   AND variable IN ('qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
@@ -201,7 +201,7 @@ def test_bdi_with_db():
             result = conn.execute(text("""
                 SELECT MIN(valid_time) as start_time,
                        MAX(valid_time) as end_time
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND variable IN ('qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
             """), {'feature_id': feature_id})

@@ -11,7 +11,7 @@ load_dotenv()
 engine = create_engine(os.getenv('DATABASE_URL'))
 
 with engine.connect() as conn:
-    result = conn.execute(text('SELECT * FROM temperature_timeseries LIMIT 3'))
+    result = conn.execute(text('SELECT * FROM observations.temperature_timeseries LIMIT 3'))
     print('Columns:', [col for col in result.keys()])
     print('\nSample data:')
     for row in result:

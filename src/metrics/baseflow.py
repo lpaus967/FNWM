@@ -299,7 +299,7 @@ def compute_bdi_for_reach(
     # Query flow components for the reach at the specified time
     query = text("""
         SELECT variable, value
-        FROM hydro_timeseries
+        FROM nwm.hydro_timeseries
         WHERE feature_id = :feature_id
           AND valid_time = :valid_time
           AND variable IN ('qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
@@ -360,7 +360,7 @@ def compute_bdi_timeseries_for_reach(
     # Query flow components
     query = text("""
         SELECT valid_time, variable, value
-        FROM hydro_timeseries
+        FROM nwm.hydro_timeseries
         WHERE feature_id = :feature_id
           AND valid_time BETWEEN :start_time AND :end_time
           AND variable IN ('qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')

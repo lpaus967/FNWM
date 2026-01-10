@@ -223,7 +223,7 @@ class ThermalSuitabilityCalculator:
                 result = conn.execute(
                     text("""
                         SELECT temperature_2m, cloud_cover
-                        FROM temperature_timeseries
+                        FROM observations.temperature_timeseries
                         WHERE nhdplusid = :nhdplusid
                           AND forecast_hour = 0
                           AND temperature_2m IS NOT NULL
@@ -241,7 +241,7 @@ class ThermalSuitabilityCalculator:
                 result = conn.execute(
                     text("""
                         SELECT AVG(temperature_2m) as avg_temp, AVG(cloud_cover) as avg_cloud
-                        FROM temperature_timeseries
+                        FROM observations.temperature_timeseries
                         WHERE nhdplusid = :nhdplusid
                           AND forecast_hour BETWEEN 1 AND 12
                           AND temperature_2m IS NOT NULL
@@ -260,7 +260,7 @@ class ThermalSuitabilityCalculator:
                 result = conn.execute(
                     text("""
                         SELECT AVG(temperature_2m) as avg_temp, AVG(cloud_cover) as avg_cloud
-                        FROM temperature_timeseries
+                        FROM observations.temperature_timeseries
                         WHERE nhdplusid = :nhdplusid
                           AND forecast_hour BETWEEN 24 AND 72
                           AND temperature_2m IS NOT NULL

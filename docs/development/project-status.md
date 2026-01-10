@@ -1,14 +1,14 @@
 # FNWM Project Status
 
-**Last Updated**: 2026-01-07
+**Last Updated**: 2026-01-08
 
 ---
 
-## 🎉 7 OF 8 EPICS COMPLETE - Production Ready!
+## 🎉 EPIC 8 IN PROGRESS - USGS Validation Operational!
 
 The FNWM system is fully operational with comprehensive features: NWM data ingestion, derived metrics, temperature integration, species scoring, confidence quantification, production API, flow percentiles, and wind data pipeline.
 
-**Only EPIC 8 (Validation & Feedback Loop) remains to complete the original roadmap.**
+**EPIC 8 (Validation & Feedback Loop) is in progress with USGS validation infrastructure complete and operational.**
 
 ---
 
@@ -839,24 +839,69 @@ Review these documents:
 
 ### Next Steps
 
-**EPIC 8: Validation & Feedback Loop** 🎯 **NEXT UP**
+### EPIC 8: Validation & Feedback Loop ⏳ **IN PROGRESS**
 
-The only remaining EPIC from the original roadmap:
+The final EPIC from the original roadmap is underway with USGS integration complete:
 
-1. **Ticket 8.1 - Observation Ingestion**
+**✅ Completed Components:**
+
+1. **USGS Gage Integration** ✅
+   - Created `src/usgs/client.py` (320 lines) - USGS Water Services API client
+   - Created `src/usgs/schemas.py` (88 lines) - Data models for USGS responses
+   - Database tables:
+     - `USGS_Flowsites` - Gage site locations and metadata (7 active sites)
+     - `usgs_instantaneous_values` - 15-minute interval observations
+     - `usgs_latest_readings` - Materialized view for current conditions
+   - Real-time data ingestion for discharge, gage height, water temperature
+   - Automated ingestion script: `scripts/production/ingest_usgs_data.py`
+   - Comprehensive test suite: `scripts/tests/test_usgs_client.py`
+
+2. **NWM-USGS Validation Engine** ✅
+   - Created `src/validation/nwm_usgs_validator.py` (395 lines) - Statistical validation
+   - Spatial mapping of USGS gages to NHD flowlines (100m buffer)
+   - Validation metrics:
+     - Pearson correlation coefficient
+     - RMSE (Root Mean Square Error)
+     - MAE (Mean Absolute Error)
+     - Bias and percent bias
+     - Nash-Sutcliffe Efficiency (NSE)
+   - Performance rating system (Excellent/Very Good/Good/Satisfactory/Unsatisfactory)
+   - Database tables:
+     - `nwm_usgs_validation` - Historical validation metrics
+     - `latest_validation_results` - Materialized view
+     - `validation_summary` - Performance summary view
+   - Integrated into production workflow: `scripts/dev/run_subset_ingestion.py`
+   - Validation test suite: `scripts/tests/test_validation.py`
+
+3. **Documentation** ✅
+   - Created `docs/guides/usgs-integration.md` - Complete USGS integration guide
+   - Updated `README.md` with validation framework details
+   - Setup scripts with inline documentation
+
+**Current Status:**
+- 7 USGS gages actively monitoring streamflow in Idaho
+- Real-time validation tracking NWM prediction accuracy
+- Automated validation pipeline operational
+- All core validation infrastructure complete
+
+**🚧 Remaining Components:**
+
+1. **Ticket 8.1 - User Observation Ingestion** (Planned)
    - User trip report collection
    - Field observation database schema
    - API endpoints for data submission
 
-2. **Ticket 8.2 - Model Performance Scoring**
+2. **Ticket 8.2 - Fisheries Outcome Validation** (Planned)
    - Compare predictions vs. actual fishing outcomes
-   - Track accuracy metrics over time
+   - Track recommendation accuracy over time
    - Identify model drift and calibration needs
 
-3. **Ticket 8.3 - Threshold Calibration Tooling**
+3. **Ticket 8.3 - Threshold Calibration Tooling** (Planned)
    - Admin interface for threshold adjustment
    - A/B testing framework for config changes
    - Automated threshold optimization
+
+**Progress:** ~40% complete (USGS validation infrastructure operational)
 
 **Optional Future Enhancements:**
 
@@ -878,7 +923,7 @@ python -m uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
 Access interactive docs at: `http://localhost:8000/docs`
 
-**7 of 8 EPICs complete. Temperature integration operational. Wind data pipeline live.**
+**EPIC 8 in progress (40% complete). USGS validation infrastructure operational. Temperature integration live. Wind data pipeline active.**
 
 **Shipping raw hydrology is easy. Shipping trusted fisheries intelligence is the work.**
 

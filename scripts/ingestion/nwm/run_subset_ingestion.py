@@ -8,7 +8,7 @@ This ensures we only ingest NWM data for reaches that have corresponding NHD spa
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # Add src to path
@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from ingest.schedulers import IngestionScheduler
 from ingest.nwm_client import NWMClient
+from usgs.client import USGSClient, ParameterCodes
+from validation.nwm_usgs_validator import NWMUSGSValidator
 
 # Load environment
 load_dotenv()
@@ -36,7 +38,7 @@ def get_nhd_feature_ids():
     Query database to get all NHD feature IDs (nhdplusid values).
 
     Returns:
-        set: Set of NHDPlusID values from nhd_flowlines table
+        set: Set of NHDPlusID values from nhd.flowlines table
 
     Raises:
         ValueError: If no NHD feature IDs are found in the database
@@ -49,7 +51,7 @@ def get_nhd_feature_ids():
         with engine.connect() as conn:
             result = conn.execute(text("""
                 SELECT nhdplusid
-                FROM nhd_flowlines
+                FROM nhd.flowlines
                 ORDER BY nhdplusid
             """))
 
@@ -82,7 +84,7 @@ def log_ingestion(product: str, cycle_time: datetime, status: str,
 
         with engine.begin() as conn:
             conn.execute(text("""
-                INSERT INTO ingestion_log (
+                INSERT INTO nwm.ingestion_log (
                     product, cycle_time, domain, status, records_ingested,
                     error_message, started_at, completed_at, duration_seconds
                 ) VALUES (
@@ -102,6 +104,173 @@ def log_ingestion(product: str, cycle_time: datetime, status: str,
             })
     except Exception as e:
         logger.warning(f"Failed to log ingestion for {product}: {e}")
+
+
+def ingest_usgs_data() -> int:
+    """
+    Ingest current USGS gage data for all enabled sites.
+
+    Returns:
+        Number of readings ingested
+    """
+    logger.info("\n" + "=" * 80)
+    logger.info("USGS DATA INGESTION")
+    logger.info("=" * 80)
+
+    try:
+        engine = create_engine(os.getenv('DATABASE_URL'))
+
+        # Get enabled USGS sites
+        with engine.connect() as conn:
+            result = conn.execute(text('''
+                SELECT "siteId"
+                FROM "USGS_Flowsites"
+                WHERE "isEnabled" = TRUE
+                ORDER BY "siteId";
+            '''))
+            site_ids = [row[0] for row in result]
+
+        if not site_ids:
+            logger.warning("No enabled USGS sites found")
+            return 0
+
+        logger.info(f"Found {len(site_ids)} enabled USGS sites")
+
+        # Fetch current conditions
+        client = USGSClient()
+        results = client.fetch_current_conditions(
+            site_ids=site_ids,
+            parameter_codes=[
+                ParameterCodes.DISCHARGE,
+                ParameterCodes.GAGE_HEIGHT,
+                ParameterCodes.WATER_TEMP
+            ]
+        )
+
+        # Store in database
+        all_readings = []
+        for result in results:
+            if result.success and result.data:
+                all_readings.extend(result.data)
+
+        if all_readings:
+            fetched_at = datetime.now(timezone.utc)
+
+            with engine.begin() as conn:
+                insert_sql = text("""
+                    INSERT INTO observations.usgs_instantaneous_values (
+                        site_id, parameter_cd, datetime, parameter_name,
+                        value, unit, qualifiers, is_provisional, fetched_at
+                    ) VALUES (
+                        :site_id, :parameter_cd, :datetime, :parameter_name,
+                        :value, :unit, :qualifiers, :is_provisional, :fetched_at
+                    )
+                    ON CONFLICT (site_id, parameter_cd, datetime)
+                    DO UPDATE SET
+                        value = EXCLUDED.value,
+                        fetched_at = EXCLUDED.fetched_at;
+                """)
+
+                for reading in all_readings:
+                    conn.execute(insert_sql, {
+                        'site_id': reading.site_id,
+                        'parameter_cd': reading.parameter_cd,
+                        'datetime': reading.datetime,
+                        'parameter_name': reading.parameter_name,
+                        'value': reading.value,
+                        'unit': reading.unit,
+                        'qualifiers': reading.qualifiers,
+                        'is_provisional': reading.is_provisional,
+                        'fetched_at': fetched_at
+                    })
+
+                # Refresh materialized view
+                conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY usgs_latest_readings;"))
+
+        logger.info(f"✅ USGS Ingestion Complete: {len(all_readings)} readings stored")
+        return len(all_readings)
+
+    except Exception as e:
+        logger.error(f"❌ USGS ingestion failed: {e}")
+        return 0
+
+
+def run_validation(target_date: datetime):
+    """
+    Run NWM-USGS validation for recent data.
+
+    Args:
+        target_date: Date of NWM data to validate
+    """
+    logger.info("\n" + "=" * 80)
+    logger.info("NWM-USGS VALIDATION")
+    logger.info("=" * 80)
+
+    try:
+        validator = NWMUSGSValidator(os.getenv('DATABASE_URL'))
+
+        # Validate over the last 24 hours
+        end_time = target_date
+        start_time = target_date - timedelta(hours=24)
+
+        logger.info(f"Validation period: {start_time} to {end_time}")
+
+        # Run validation for all sites
+        results = validator.validate_all_sites(
+            start_time=start_time,
+            end_time=end_time,
+            nwm_product='analysis_assim'
+        )
+
+        if not results:
+            logger.warning("No validation results (insufficient paired data)")
+            return
+
+        # Store results
+        for metrics in results:
+            validator.store_validation_results(
+                metrics=metrics,
+                validation_period_start=start_time,
+                validation_period_end=end_time,
+                nwm_product='analysis_assim'
+            )
+
+        # Display summary
+        logger.info("\n" + "-" * 80)
+        logger.info("VALIDATION SUMMARY")
+        logger.info("-" * 80)
+
+        avg_corr = sum(m.correlation for m in results) / len(results)
+        avg_rmse = sum(m.rmse for m in results) / len(results)
+        avg_nse = sum(m.nash_sutcliffe for m in results) / len(results)
+
+        logger.info(f"Sites validated: {len(results)}")
+        logger.info(f"Average correlation: {avg_corr:.3f}")
+        logger.info(f"Average RMSE: {avg_rmse:.2f} cfs")
+        logger.info(f"Average Nash-Sutcliffe: {avg_nse:.3f}")
+
+        # Show individual results
+        logger.info("\nIndividual Site Performance:")
+        for metrics in results:
+            rating = "Excellent" if metrics.nash_sutcliffe > 0.75 else \
+                     "Very Good" if metrics.nash_sutcliffe > 0.65 else \
+                     "Good" if metrics.nash_sutcliffe > 0.50 else \
+                     "Satisfactory" if metrics.nash_sutcliffe > 0.40 else \
+                     "Unsatisfactory"
+
+            logger.info(f"  {metrics.site_id}: NSE={metrics.nash_sutcliffe:.3f}, R={metrics.correlation:.3f} ({rating})")
+
+        logger.info("\n✅ Validation Complete")
+
+        # Refresh materialized view
+        engine = create_engine(os.getenv('DATABASE_URL'))
+        with engine.begin() as conn:
+            conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY latest_validation_results;"))
+
+    except Exception as e:
+        logger.error(f"❌ Validation failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def run_subset_ingestion(target_date: datetime):
@@ -355,11 +524,21 @@ def run_subset_ingestion(target_date: datetime):
         logger.info(f"PRODUCT 4/4: analysis_assim_no_da SKIPPED (only runs at 00Z, got {target_date.hour}Z)")
         logger.info("=" * 80)
 
+    # Ingest USGS Data
+    usgs_records = ingest_usgs_data()
+
+    # Run Validation (compare NWM vs USGS)
+    if usgs_records > 0 and total_records > 0:
+        run_validation(target_date)
+    else:
+        logger.info("\n⚠️  Skipping validation (insufficient NWM or USGS data)")
+
     # Summary
     logger.info("\n" + "=" * 80)
     logger.info("NHD-FILTERED INGESTION COMPLETE")
     logger.info("=" * 80)
-    logger.info(f"Total records ingested: {total_records:,}")
+    logger.info(f"Total NWM records ingested: {total_records:,}")
+    logger.info(f"Total USGS records ingested: {usgs_records:,}")
     logger.info(f"NHD feature IDs used: {len(nhd_feature_ids):,}")
     logger.info(f"Date: {target_date.strftime('%Y-%m-%d %HZ')}")
 
@@ -374,7 +553,7 @@ def run_subset_ingestion(target_date: datetime):
 
 if __name__ == "__main__":
     # January 5, 2026 at 00Z
-    target_date = datetime(2026, 1, 6, 11, 0, 0, tzinfo=timezone.utc)
+    target_date = datetime(2026, 1, 8, 20, 0, 0, tzinfo=timezone.utc)
 
     logger.info("\nNHD-Filtered Ingestion Parameters:")
     logger.info(f"  Target Date: {target_date.strftime('%Y-%m-%d %HZ')}")

@@ -59,7 +59,7 @@ try:
     with engine.connect() as conn:
         result = conn.execute(text("""
             SELECT nhdplusid, qama
-            FROM nhd_flow_statistics
+            FROM nhd.flow_statistics
             WHERE qama IS NOT NULL
             ORDER BY nhdplusid
             LIMIT 1
@@ -96,12 +96,12 @@ if test_feature_id:
     print("TEST 3: Full Percentile Calculation for Reach")
     print("-" * 80)
 
-    # Get current flow data from hydro_timeseries
+    # Get current flow data from nwm.hydro_timeseries
     try:
         with engine.connect() as conn:
             result = conn.execute(text("""
                 SELECT value, valid_time
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND source = 'analysis_assim'
                   AND variable = 'streamflow'
@@ -154,14 +154,14 @@ try:
         # Count total reaches
         result = conn.execute(text("""
             SELECT COUNT(*) as total
-            FROM nhd_flowlines
+            FROM nhd.flowlines
         """))
         total_reaches = result.fetchone()[0]
 
         # Count reaches with flow statistics
         result = conn.execute(text("""
             SELECT COUNT(*) as with_stats
-            FROM nhd_flow_statistics
+            FROM nhd.flow_statistics
             WHERE qama IS NOT NULL OR qbma IS NOT NULL OR qcma IS NOT NULL
         """))
         with_stats = result.fetchone()[0]
@@ -169,7 +169,7 @@ try:
         # Count reaches with NWM data
         result = conn.execute(text("""
             SELECT COUNT(DISTINCT feature_id) as with_nwm
-            FROM hydro_timeseries
+            FROM nwm.hydro_timeseries
             WHERE variable = 'streamflow'
         """))
         with_nwm = result.fetchone()[0]
@@ -177,8 +177,8 @@ try:
         # Count reaches with both NHD and NWM data
         result = conn.execute(text("""
             SELECT COUNT(DISTINCT h.feature_id) as with_both
-            FROM hydro_timeseries h
-            INNER JOIN nhd_flow_statistics nfs ON h.feature_id = nfs.nhdplusid
+            FROM nwm.hydro_timeseries h
+            INNER JOIN nhd.flow_statistics nfs ON h.feature_id = nfs.nhdplusid
             WHERE h.variable = 'streamflow'
               AND nfs.qama IS NOT NULL
         """))

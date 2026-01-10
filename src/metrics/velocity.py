@@ -247,7 +247,7 @@ def classify_velocity_for_reach(
     # Query velocity for the reach at the specified time
     query = text("""
         SELECT value
-        FROM hydro_timeseries
+        FROM nwm.hydro_timeseries
         WHERE feature_id = :feature_id
           AND valid_time = :valid_time
           AND variable = 'velocity'
@@ -304,7 +304,7 @@ def classify_velocity_timeseries_for_reach(
     # Query velocity data
     query = text("""
         SELECT valid_time, value
-        FROM hydro_timeseries
+        FROM nwm.hydro_timeseries
         WHERE feature_id = :feature_id
           AND valid_time BETWEEN :start_time AND :end_time
           AND variable = 'velocity'

@@ -434,7 +434,7 @@ class WaterTemperaturePredictor:
                         size_class,
                         slope,
                         totdasqkm
-                    FROM nhd_flowlines
+                    FROM nhd.flowlines
                     WHERE nhdplusid = :nhdplusid
                 """),
                 {"nhdplusid": nhdplusid}
@@ -472,12 +472,12 @@ class WaterTemperaturePredictor:
                 result = conn.execute(
                     text("""
                         SELECT variable, value
-                        FROM hydro_timeseries
+                        FROM nwm.hydro_timeseries
                         WHERE feature_id = :feature_id
                           AND variable IN ('qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                           AND valid_time = (
                               SELECT MAX(valid_time)
-                              FROM hydro_timeseries
+                              FROM nwm.hydro_timeseries
                               WHERE feature_id = :feature_id
                           )
                     """),
@@ -489,7 +489,7 @@ class WaterTemperaturePredictor:
                 result = conn.execute(
                     text("""
                         SELECT variable, AVG(value) as value
-                        FROM hydro_timeseries
+                        FROM nwm.hydro_timeseries
                         WHERE feature_id = :feature_id
                           AND variable IN ('qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
                           AND valid_time >= NOW()

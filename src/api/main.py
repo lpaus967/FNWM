@@ -102,7 +102,7 @@ async def health_check():
             # Get last data update
             result = conn.execute(text("""
                 SELECT MAX(valid_time) as last_update
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
             """))
             row = result.fetchone()
             last_update = row[0] if row else None
@@ -209,7 +209,7 @@ async def get_reach_hydrology(
             if timeframe in ["now", "all"]:
                 result = conn.execute(text("""
                     SELECT variable, value, valid_time, source
-                    FROM hydro_timeseries
+                    FROM nwm.hydro_timeseries
                     WHERE feature_id = :feature_id
                       AND source = 'analysis_assim'
                       AND variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
@@ -245,7 +245,7 @@ async def get_reach_hydrology(
                     try:
                         temp_result = conn.execute(text("""
                             SELECT temperature_2m
-                            FROM temperature_timeseries
+                            FROM observations.temperature_timeseries
                             WHERE nhdplusid = :feature_id
                               AND forecast_hour = 0
                               AND temperature_2m IS NOT NULL
@@ -280,7 +280,7 @@ async def get_reach_hydrology(
             if timeframe in ["today", "all"]:
                 result = conn.execute(text("""
                     SELECT forecast_hour, valid_time, variable, value
-                    FROM hydro_timeseries
+                    FROM nwm.hydro_timeseries
                     WHERE feature_id = :feature_id
                       AND source = 'short_range'
                       AND variable IN ('streamflow', 'velocity')
@@ -338,7 +338,7 @@ async def get_reach_hydrology(
             if timeframe in ["outlook", "all"]:
                 result = conn.execute(text("""
                     SELECT value
-                    FROM hydro_timeseries
+                    FROM nwm.hydro_timeseries
                     WHERE feature_id = :feature_id
                       AND source = 'medium_range_blend'
                       AND variable = 'streamflow'
@@ -432,7 +432,7 @@ async def get_fisheries_score(
 
             result = conn.execute(text("""
                 SELECT variable, value, valid_time
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND source = :source
                   AND variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')
@@ -542,7 +542,7 @@ async def get_hatch_forecast(
             # Fetch current hydrologic data
             result = conn.execute(text("""
                 SELECT variable, value, valid_time
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND source = 'analysis_assim'
                   AND variable IN ('streamflow', 'velocity', 'qBtmVertRunoff', 'qBucket', 'qSfcLatRunoff')

@@ -93,7 +93,7 @@ def build_query(args):
             source,
             forecast_hour,
             confidence
-        FROM map_current_conditions
+        FROM derived.map_current_conditions
         WHERE 1=1
     """
 

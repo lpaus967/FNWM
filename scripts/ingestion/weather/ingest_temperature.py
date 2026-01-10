@@ -71,7 +71,7 @@ def get_earliest_nwm_time(engine) -> datetime:
     Returns:
         Earliest valid_time as timezone-aware datetime (UTC)
     """
-    query = "SELECT MIN(valid_time) as earliest FROM hydro_timeseries"
+    query = "SELECT MIN(valid_time) as earliest FROM nwm.hydro_timeseries"
 
     with engine.begin() as conn:
         result = conn.execute(text(query))
@@ -96,7 +96,7 @@ def fetch_reach_centroids(engine, limit: int = None) -> List[dict]:
     """
     query = """
         SELECT nhdplusid, latitude, longitude
-        FROM nhd_reach_centroids
+        FROM nhd.reach_centroids
         ORDER BY nhdplusid
     """
 
@@ -133,7 +133,7 @@ def insert_temperature_readings(
         return 0
 
     insert_query = text("""
-        INSERT INTO temperature_timeseries
+        INSERT INTO observations.temperature_timeseries
             (nhdplusid, valid_time, temperature_2m, apparent_temperature,
              precipitation, cloud_cover, source, forecast_hour, ingested_at)
         VALUES

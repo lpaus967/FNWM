@@ -57,7 +57,7 @@ def test_rising_limb_with_db():
                        MIN(valid_time) as earliest,
                        MAX(valid_time) as latest,
                        COUNT(DISTINCT feature_id) as num_reaches
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE variable = 'streamflow'
             """))
 
@@ -79,7 +79,7 @@ def test_rising_limb_with_db():
             print("Selecting sample reach with data...")
             result = conn.execute(text("""
                 SELECT feature_id, COUNT(*) as record_count
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE variable = 'streamflow'
                 GROUP BY feature_id
                 ORDER BY COUNT(*) DESC
@@ -101,7 +101,7 @@ def test_rising_limb_with_db():
             result = conn.execute(text("""
                 SELECT MIN(valid_time) as start_time,
                        MAX(valid_time) as end_time
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND variable = 'streamflow'
             """), {'feature_id': feature_id})
@@ -127,7 +127,7 @@ def test_rising_limb_with_db():
 
             result = conn.execute(text("""
                 SELECT valid_time, value
-                FROM hydro_timeseries
+                FROM nwm.hydro_timeseries
                 WHERE feature_id = :feature_id
                   AND variable = 'streamflow'
                 ORDER BY valid_time ASC

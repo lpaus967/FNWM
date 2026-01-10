@@ -248,7 +248,7 @@ def explain_flow_percentile(
 
 def get_monthly_mean_flow(feature_id: int, month: int) -> Optional[float]:
     """
-    Query database for monthly mean flow from nhd_flow_statistics.
+    Query database for monthly mean flow from nhd.flow_statistics.
 
     NOTE: NHD flow statistics only available for January-June (months 1-6).
     Months 7-12 will return None as this data is not in the NHD dataset.
@@ -288,7 +288,7 @@ def get_monthly_mean_flow(feature_id: int, month: int) -> Optional[float]:
             result = conn.execute(
                 text(f"""
                     SELECT {column_name}
-                    FROM nhd_flow_statistics
+                    FROM nhd.flow_statistics
                     WHERE nhdplusid = :feature_id
                 """),
                 {"feature_id": feature_id}

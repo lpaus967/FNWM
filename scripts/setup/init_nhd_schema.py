@@ -171,7 +171,7 @@ def init_nhd_schema():
             print("Creating table: nhd_network_topology...")
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS nhd_network_topology (
-                    nhdplusid BIGINT PRIMARY KEY REFERENCES nhd_flowlines(nhdplusid) ON DELETE CASCADE,
+                    nhdplusid BIGINT PRIMARY KEY REFERENCES nhd.flowlines(nhdplusid) ON DELETE CASCADE,
 
                     fromnode BIGINT,
                     tonode BIGINT,
@@ -228,7 +228,7 @@ def init_nhd_schema():
             print("Creating table: nhd_flow_statistics...")
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS nhd_flow_statistics (
-                    nhdplusid BIGINT PRIMARY KEY REFERENCES nhd_flowlines(nhdplusid) ON DELETE CASCADE,
+                    nhdplusid BIGINT PRIMARY KEY REFERENCES nhd.flowlines(nhdplusid) ON DELETE CASCADE,
 
                     qama DOUBLE PRECISION,
                     qbma DOUBLE PRECISION,
